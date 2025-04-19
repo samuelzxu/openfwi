@@ -33,10 +33,6 @@ from torch.utils.tensorboard import SummaryWriter
 import torchvision
 from torchvision.transforms import Compose
 import wandb
-import numpy as np
-import matplotlib.pyplot as plt
-import io
-from PIL import Image
 
 import utils
 import network
@@ -91,101 +87,10 @@ def train_one_epoch(model, criterion, optimizer, lr_scheduler,
         lr_scheduler.step()
 
 
-def log_wandb_images(data, label, output, step, max_samples=10):
-    """
-    Log the first few validation samples to wandb
-    
-    Args:
-        data: Input seismic data (B, C, H, W)
-        label: Ground truth velocity map (B, 1, H, W)
-        output: Predicted velocity map (B, 1, H, W)
-        step: Current global step
-        max_samples: Maximum number of samples to log
-    """
-    # Convert tensors to numpy arrays
-    data_np = data.detach().cpu().numpy()
-    label_np = label.detach().cpu().numpy()
-    output_np = output.detach().cpu().numpy()
-    
-    # Limit to max_samples
-    n_samples = min(data_np.shape[0], max_samples)
-    data_np = data_np[:n_samples]
-    label_np = label_np[:n_samples]
-    output_np = output_np[:n_samples]
-    
-    # Log each sample
-    for i in range(n_samples):
-        # Create velocity map figure (ground truth and prediction)
-        fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-        
-        # Ground truth velocity map
-        im0 = axes[0].imshow(label_np[i, 0], cmap='jet')
-        axes[0].set_title('Ground Truth Velocity')
-        axes[0].set_xticks(range(0, label_np.shape[-1], 10))
-        axes[0].set_xticklabels(range(0, label_np.shape[-1]*10, 100))
-        axes[0].set_yticks(range(0, label_np.shape[-2], 10))
-        axes[0].set_yticklabels(range(0, label_np.shape[-2]*10, 100))
-        axes[0].set_ylabel('Depth (m)', fontsize=12)
-        axes[0].set_xlabel('Offset (m)', fontsize=12)
-        
-        # Predicted velocity map
-        im1 = axes[1].imshow(output_np[i, 0], cmap='jet')
-        axes[1].set_title('Predicted Velocity')
-        axes[1].set_xticks(range(0, output_np.shape[-1], 10))
-        axes[1].set_xticklabels(range(0, output_np.shape[-1]*10, 100))
-        axes[1].set_yticks(range(0, output_np.shape[-2], 10))
-        axes[1].set_yticklabels(range(0, output_np.shape[-2]*10, 100))
-        axes[1].set_ylabel('Depth (m)', fontsize=12)
-        axes[1].set_xlabel('Offset (m)', fontsize=12)
-        
-        # Add colorbars
-        cbar0 = plt.colorbar(im0, ax=axes[0])
-        cbar0.ax.set_title('km/s', fontsize=8)
-        cbar1 = plt.colorbar(im1, ax=axes[1])
-        cbar1.ax.set_title('km/s', fontsize=8)
-        
-        plt.tight_layout()
-        # Convert plot to wandb image
-        velocity_buf = io.BytesIO()
-        plt.savefig(velocity_buf, format='png')
-        velocity_buf.seek(0)
-        plt.close()
-        
-        # Create seismic data figure (input)
-        n_channels = data_np.shape[1]
-        fig, axes = plt.subplots(1, n_channels, figsize=(4*n_channels, 4))
-        
-        for ch in range(n_channels):
-            im = axes[ch].imshow(data_np[i, ch], extent=[0, data_np.shape[-1], data_np.shape[-2], 0], 
-                               aspect='auto', cmap='gray', vmin=-0.5, vmax=0.5)
-            axes[ch].set_title(f'Channel {ch+1}')
-            axes[ch].set_xticks(range(0, data_np.shape[-1], 10))
-            axes[ch].set_xticklabels(range(0, data_np.shape[-1]*10, 100))
-            axes[ch].set_ylabel('Time (s)', fontsize=12)
-            axes[ch].set_xlabel('Offset (m)', fontsize=12)
-        
-        plt.tight_layout()
-        # Convert plot to wandb image
-        seismic_buf = io.BytesIO()
-        plt.savefig(seismic_buf, format='png')
-        seismic_buf.seek(0)
-        plt.close()
-        
-        # Log to wandb
-        wandb.log({
-            f"val_sample_{i}/velocity_maps": wandb.Image(Image.open(velocity_buf)),
-            f"val_sample_{i}/seismic_data": wandb.Image(Image.open(seismic_buf))
-        }, step=step)
-
 def evaluate(model, criterion, dataloader, device, writer):
     model.eval()
     metric_logger = utils.MetricLogger(delimiter='  ')
     header = 'Test:'
-    
-    # Store a few samples for visualization
-    vis_data, vis_label, vis_output = None, None, None
-    sample_count = 0
-    
     with torch.no_grad():
         for data, label in metric_logger.log_every(dataloader, 20, header):
             data = data.to(device, non_blocking=True)
@@ -195,15 +100,6 @@ def evaluate(model, criterion, dataloader, device, writer):
             metric_logger.update(loss=loss.item(), 
                 loss_g1v=loss_g1v.item(), 
                 loss_g2v=loss_g2v.item())
-            
-            # Store first few samples for visualization
-            if not args.distributed or (args.rank == 0 and args.local_rank == 0):
-                if sample_count < 10 and vis_data is None:
-                    # Initialize tensors for visualization
-                    vis_data = data[:10].clone()
-                    vis_label = label[:10].clone()
-                    vis_output = output[:10].clone()
-                    sample_count = 10
 
     # Gather the stats from all processes
     metric_logger.synchronize_between_processes()
@@ -220,10 +116,6 @@ def evaluate(model, criterion, dataloader, device, writer):
             'val/loss_g1v': metric_logger.loss_g1v.global_avg,
             'val/loss_g2v': metric_logger.loss_g2v.global_avg
         }, step=step)
-        
-        # Log visualizations for the first 10 samples
-        if vis_data is not None and args.log_images:
-            log_wandb_images(vis_data, vis_label, vis_output, step)
         
     return metric_logger.loss.global_avg
 
@@ -373,12 +265,10 @@ def main(args):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
-        
-        loss = evaluate(model, criterion, dataloader_valid, device, val_writer)
         train_one_epoch(model, criterion, optimizer, lr_scheduler, dataloader_train,
                         device, epoch, args.print_freq, train_writer)
         
-        
+        loss = evaluate(model, criterion, dataloader_valid, device, val_writer)
         
         checkpoint = {
             'model': model_without_ddp.state_dict(),
@@ -477,7 +367,6 @@ def parse_args():
     parser.add_argument('--wandb-project', default='OpenFWI', help='wandb project name')
     parser.add_argument('--no-wandb', action='store_true', help='Disable wandb logging')
     parser.add_argument('--save-model-wandb', action='store_true', help='Save model checkpoints to wandb')
-    parser.add_argument('--log-images', action='store_true', help='Log sample images to wandb')
 
     args = parser.parse_args()
 
