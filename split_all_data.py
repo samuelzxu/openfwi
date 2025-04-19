@@ -3,7 +3,7 @@ import numpy as np
 import time
 from tqdm import tqdm
 
-root_dir = os.path.join('/mnt', 'datasets', 'openfwi')
+orig_data_dir = os.path.join('/mnt', 'datasets', 'openfwi')
 data_types = ['CurveVel_A',
  'CurveFault_A',
  'Style_A',
@@ -14,8 +14,7 @@ data_types = ['CurveVel_A',
  'CurveFault_B',
  'FlatVel_A',
  'FlatFault_A']
-save_dir = 'data/openfwi_unpacked'
-data_dir = root_dir
+save_dir = '/home/ziggy/dev/openfwi_unpacked'
 
 def parse_common_fault_files(d):
     fault_files = os.listdir(d)
@@ -91,7 +90,7 @@ def save_data_chunks(save_dir, data_types, root_dir):
                 chunk_y = y[i*chunk_size:(i+1)*chunk_size].squeeze()
 
                 # Create a directory for this chunk if it doesn't exist
-                chunk_id = f'{data_type}_{extract_numerical(ex_x)}_{i}'
+                chunk_id = f'{data_type}/{extract_numerical(ex_x)}/{i}'
                 chunk_dir = os.path.join(save_dir, chunk_id)
                 os.makedirs(chunk_dir, exist_ok=True)
 
@@ -99,7 +98,5 @@ def save_data_chunks(save_dir, data_types, root_dir):
                 np.save(os.path.join(chunk_dir, 'x.npy'), chunk_x)
                 np.save(os.path.join(chunk_dir, 'y.npy'), chunk_y)
                 
-            gc.collect()
-
 if __name__ == "__main__":
-    save_data_chunks(save_dir, data_types, root_dir)
+    save_data_chunks(save_dir, data_types, orig_data_dir)
