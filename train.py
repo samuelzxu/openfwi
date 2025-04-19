@@ -50,6 +50,7 @@ def train_one_epoch(model, criterion, optimizer, lr_scheduler,
     metric_logger = utils.MetricLogger(delimiter='  ')
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value}'))
     metric_logger.add_meter('samples/s', utils.SmoothedValue(window_size=10, fmt='{value:.3f}'))
+    metric_logger.add_meter('loss_g1v_unnorm', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
     header = 'Epoch: [{}]'.format(epoch)
 
     for data, label in metric_logger.log_every(dataloader, print_freq, header):
@@ -58,20 +59,29 @@ def train_one_epoch(model, criterion, optimizer, lr_scheduler,
         data, label = data.to(device), label.to(device)
         output = model(data)
         loss, loss_g1v, loss_g2v = criterion(output, label)
+        
+        # Calculate un-normalized g1v loss (L1 loss)
+        # Reverse the MinMaxNormalize transform applied to labels
+        unnorm_output = output * (ctx['label_max'] - ctx['label_min']) + ctx['label_min']
+        unnorm_label = label * (ctx['label_max'] - ctx['label_min']) + ctx['label_min']
+        loss_g1v_unnorm = torch.nn.functional.l1_loss(unnorm_output, unnorm_label)
+        
         loss.backward()
         optimizer.step()
 
         loss_val = loss.item()
         loss_g1v_val = loss_g1v.item()
         loss_g2v_val = loss_g2v.item()
+        loss_g1v_unnorm_val = loss_g1v_unnorm.item()
         batch_size = data.shape[0]
         metric_logger.update(loss=loss_val, loss_g1v=loss_g1v_val, 
-            loss_g2v=loss_g2v_val, lr=optimizer.param_groups[0]['lr'])
+            loss_g2v=loss_g2v_val, loss_g1v_unnorm=loss_g1v_unnorm_val, lr=optimizer.param_groups[0]['lr'])
         metric_logger.meters['samples/s'].update(batch_size / (time.time() - start_time))
         if writer:
             writer.add_scalar('loss', loss_val, step)
             writer.add_scalar('loss_g1v', loss_g1v_val, step)
             writer.add_scalar('loss_g2v', loss_g2v_val, step)
+            writer.add_scalar('loss_g1v_unnorm', loss_g1v_unnorm_val, step)
         
         # Log metrics to wandb
         if not args.distributed or (args.rank == 0 and args.local_rank == 0):
@@ -79,6 +89,7 @@ def train_one_epoch(model, criterion, optimizer, lr_scheduler,
                 'train/loss': loss_val,
                 'train/loss_g1v': loss_g1v_val,
                 'train/loss_g2v': loss_g2v_val,
+                'train/loss_g1v_unnorm': loss_g1v_unnorm_val,
                 'train/lr': optimizer.param_groups[0]['lr'],
                 'train/samples_per_sec': batch_size / (time.time() - start_time)
             }, step=step)
@@ -90,6 +101,7 @@ def train_one_epoch(model, criterion, optimizer, lr_scheduler,
 def evaluate(model, criterion, dataloader, device, writer):
     model.eval()
     metric_logger = utils.MetricLogger(delimiter='  ')
+    metric_logger.add_meter('loss_g1v_unnorm', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
     header = 'Test:'
     with torch.no_grad():
         for data, label in metric_logger.log_every(dataloader, 20, header):
@@ -97,24 +109,35 @@ def evaluate(model, criterion, dataloader, device, writer):
             label = label.to(device, non_blocking=True)
             output = model(data)
             loss, loss_g1v, loss_g2v = criterion(output, label)
+            
+            # Calculate un-normalized g1v loss (L1 loss)
+            # Reverse the MinMaxNormalize transform applied to labels
+            unnorm_output = output * (ctx['label_max'] - ctx['label_min']) + ctx['label_min']
+            unnorm_label = label * (ctx['label_max'] - ctx['label_min']) + ctx['label_min']
+            loss_g1v_unnorm = torch.nn.functional.l1_loss(unnorm_output, unnorm_label)
+            
             metric_logger.update(loss=loss.item(), 
                 loss_g1v=loss_g1v.item(), 
-                loss_g2v=loss_g2v.item())
+                loss_g2v=loss_g2v.item(),
+                loss_g1v_unnorm=loss_g1v_unnorm.item())
 
     # Gather the stats from all processes
     metric_logger.synchronize_between_processes()
-    print(' * Loss {loss.global_avg:.8f}\n'.format(loss=metric_logger.loss))
+    print(' * Loss {loss.global_avg:.8f} * Unnorm G1V Loss {loss_g1v_unnorm.global_avg:.8f}\n'.format(
+        loss=metric_logger.loss, loss_g1v_unnorm=metric_logger.loss_g1v_unnorm))
     if writer:
         writer.add_scalar('loss', metric_logger.loss.global_avg, step)
         writer.add_scalar('loss_g1v', metric_logger.loss_g1v.global_avg, step)
         writer.add_scalar('loss_g2v', metric_logger.loss_g2v.global_avg, step)
+        writer.add_scalar('loss_g1v_unnorm', metric_logger.loss_g1v_unnorm.global_avg, step)
     
     # Log validation metrics to wandb
     if not args.distributed or (args.rank == 0 and args.local_rank == 0):
         wandb.log({
             'val/loss': metric_logger.loss.global_avg,
             'val/loss_g1v': metric_logger.loss_g1v.global_avg,
-            'val/loss_g2v': metric_logger.loss_g2v.global_avg
+            'val/loss_g2v': metric_logger.loss_g2v.global_avg,
+            'val/loss_g1v_unnorm': metric_logger.loss_g1v_unnorm.global_avg
         }, step=step)
         
     return metric_logger.loss.global_avg
@@ -122,6 +145,7 @@ def evaluate(model, criterion, dataloader, device, writer):
 
 def main(args):
     global step
+    global ctx  # Make ctx globally accessible for the un-normalization in train and evaluate functions
 
     print(args)
     print('torch version: ', torch.__version__)
