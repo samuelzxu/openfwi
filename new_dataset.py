@@ -50,7 +50,7 @@ class FineFWIDataset(Dataset):
 
         
     def __getitem__(self, idx):
-        data = np.load(self.df.iloc[idx]['absolute_x_path'])[:, :, ::self.sample_ratio, :]
+        data = np.load(self.df.iloc[idx]['absolute_x_path'])[ :, ::self.sample_ratio, :]
         label = np.load(self.df.iloc[idx]['absolute_y_path'])
         if self.transform_data:
             data = self.transform_data(data)
