@@ -28,6 +28,7 @@ from torch.utils.data import RandomSampler, DataLoader
 from torch.utils.data.dataloader import default_collate
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel
+from new_dataset import FineFWIDataset
 from torch.utils.tensorboard import SummaryWriter
 import torchvision
 from torchvision.transforms import Compose
@@ -143,30 +144,25 @@ def main(args):
     transform_label = Compose([
         T.MinMaxNormalize(ctx['label_min'], ctx['label_max'])
     ])
-    if args.train_anno[-3:] == 'txt':
-        dataset_train = FWIDataset(
-            args.train_anno,
-            preload=True,
-            sample_ratio=args.sample_temporal,
-            file_size=ctx['file_size'],
-            transform_data=transform_data,
-            transform_label=transform_label
-        )
-    else:
-        dataset_train = torch.load(args.train_anno)
+
+    dataset_train = FineFWIDataset(
+        args.train_anno,
+        preload=True,
+        sample_ratio=args.sample_temporal,
+        transform_data=transform_data,
+        transform_label=transform_label
+    )
+
 
     print('Loading validation data')
-    if args.val_anno[-3:] == 'txt':
-        dataset_valid = FWIDataset(
-            args.val_anno,
-            preload=True,
-            sample_ratio=args.sample_temporal,
-            file_size=ctx['file_size'],
-            transform_data=transform_data,
-            transform_label=transform_label
-        )
-    else:
-        dataset_valid = torch.load(args.val_anno)
+    dataset_valid = FineFWIDataset(
+        args.val_anno,
+        preload=True,
+        sample_ratio=args.sample_temporal,
+        transform_data=transform_data,
+        transform_label=transform_label
+    )
+
 
     print('Creating data loaders')
     if args.distributed:
@@ -279,8 +275,8 @@ def parse_args():
 
     # Path related
     parser.add_argument('-ap', '--anno-path', default='split_files', help='annotation files location')
-    parser.add_argument('-t', '--train-anno', default='flatfault_b_train_invnet.txt', help='name of train anno')
-    parser.add_argument('-v', '--val-anno', default='flatfault_b_val_invnet.txt', help='name of val anno')
+    parser.add_argument('-t', '--train-anno', default='train_ds.csv', help='name of train anno')
+    parser.add_argument('-v', '--val-anno', default='val_ds.csv', help='name of val anno')
     parser.add_argument('-o', '--output-path', default='Invnet_models', help='path to parent folder to save checkpoints')
     parser.add_argument('-l', '--log-path', default='Invnet_models', help='path to parent folder to save logs')
     parser.add_argument('-n', '--save-name', default='fcn_l1loss_ffb', help='folder name for this experiment')

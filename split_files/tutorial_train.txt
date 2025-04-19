@@ -1,2 +1,0 @@
-./fva_data1.npy	./fva_velocity1.npy
-./fva_data2.npy	./fva_velocity2.npy
