@@ -35,7 +35,6 @@ from torchvision.transforms import Compose
 
 import utils
 import network
-from dataset import FWIDataset
 from scheduler import WarmupMultiStepLR
 import transforms as T
 
@@ -147,7 +146,6 @@ def main(args):
 
     dataset_train = FineFWIDataset(
         args.train_anno,
-        preload=True,
         sample_ratio=args.sample_temporal,
         transform_data=transform_data,
         transform_label=transform_label
@@ -157,7 +155,6 @@ def main(args):
     print('Loading validation data')
     dataset_valid = FineFWIDataset(
         args.val_anno,
-        preload=True,
         sample_ratio=args.sample_temporal,
         transform_data=transform_data,
         transform_label=transform_label
@@ -175,12 +172,12 @@ def main(args):
     dataloader_train = DataLoader(
         dataset_train, batch_size=args.batch_size,
         sampler=train_sampler, num_workers=args.workers,
-        pin_memory=True, drop_last=True, collate_fn=default_collate)
+        drop_last=True, collate_fn=default_collate)
 
     dataloader_valid = DataLoader(
         dataset_valid, batch_size=args.batch_size,
         sampler=valid_sampler, num_workers=args.workers,
-        pin_memory=True, collate_fn=default_collate)
+        collate_fn=default_collate)
 
     print('Creating model')
     if args.model not in network.model_dict:
