@@ -46,8 +46,6 @@ class FineFWIDataset(Dataset):
         assert set(self.df.columns) == {'id', 'absolute_x_path', 'absolute_y_path'}
         assert self.df['absolute_x_path'].apply(lambda x: x[-4:] == '.npy').all()
         assert self.df['absolute_y_path'].apply(lambda x: x[-4:] == '.npy').all()
-
-
         
     def __getitem__(self, idx):
         data = np.load(self.df.iloc[idx]['absolute_x_path'])[ :, ::self.sample_ratio, :]
@@ -59,8 +57,7 @@ class FineFWIDataset(Dataset):
         return data, label if label is not None else np.array([])
         
     def __len__(self):
-        return len(self.batches) * self.file_size
-
+        return len(self.df)
 
 if __name__ == '__main__':
     transform_data = Compose([
