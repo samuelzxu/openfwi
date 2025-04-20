@@ -88,6 +88,8 @@ def save_data_chunks(save_dir, data_types, root_dir):
             for i in tqdm(range(num_chunks)):
                 chunk_x = x[i*chunk_size:(i+1)*chunk_size].squeeze()
                 chunk_y = y[i*chunk_size:(i+1)*chunk_size].squeeze()
+                assert chunk_x.shape == (5, 1000, 70)
+                assert chunk_y.shape == (70, 70)
 
                 # Create a directory for this chunk if it doesn't exist
                 chunk_id = f'{data_type}/{extract_numerical(ex_x)}/{i}'
