@@ -36,7 +36,7 @@ for i, data_file_tup in tqdm(enumerate(data_file_tups)):
     ds_dict['absolute_x_path'].append(absolute_x_path)
 
 df = pd.DataFrame(ds_dict)
-df.to_csv('generated_ds.csv', index=False)
+df.to_csv('split_files/generated_ds.csv', index=False)
 
     
     
