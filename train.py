@@ -37,6 +37,7 @@ import wandb
 import utils
 import network
 from scheduler import WarmupMultiStepLR
+from torch.optim.lr_scheduler import CosineAnnealingLR
 import transforms as T
 
 step = 0
@@ -261,11 +262,13 @@ def main(args):
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, betas=(0.9, 0.999), weight_decay=args.weight_decay)
 
     # Convert scheduler to be per iteration instead of per epoch
-    warmup_iters = args.lr_warmup_epochs * len(dataloader_train)
+    # warmup_iters = args.lr_warmup_epochs * len(dataloader_train)
+    total_iters = args.epochs * len(dataloader_train)
     lr_milestones = [len(dataloader_train) * m for m in args.lr_milestones]
-    lr_scheduler = WarmupMultiStepLR(
-        optimizer, milestones=lr_milestones, gamma=args.lr_gamma,
-        warmup_iters=warmup_iters, warmup_factor=1e-5)
+    # lr_scheduler = WarmupMultiStepLR(
+    #     optimizer, milestones=lr_milestones, gamma=args.lr_gamma,
+    #     warmup_iters=warmup_iters, warmup_factor=1e-5)
+    lr_scheduler = CosineAnnealingLR(optimizer, T_max=total_iters)
 
     model_without_ddp = model
     if args.distributed:
