@@ -194,6 +194,103 @@ class InversionNet(nn.Module):
         x = self.deconv6(x) # (None, 1, 70, 70)
         return x
 
+# FlatFault/CurveFault
+# 1000, 70 -> 70, 70
+class InversionNetv2(nn.Module):
+    def __init__(self, dim1=32, dim2=64, dim3=128, dim4=256, dim5=512, sample_spatial=1.0, **kwargs):
+        super(InversionNetv2, self).__init__()
+        self.convblock1 = ConvBlock(5, dim1, kernel_size=(7, 1), stride=(2, 1), padding=(3, 0))
+        self.convblock2_1 = ConvBlock(dim1, dim2, kernel_size=(3, 1), stride=(2, 1), padding=(1, 0))
+        self.convblock2_2 = ConvBlock(dim2, dim2, kernel_size=(3, 1), padding=(1, 0))
+        self.convblock3_1 = ConvBlock(dim2, dim2, kernel_size=(3, 1), stride=(2, 1), padding=(1, 0))
+        self.convblock3_2 = ConvBlock(dim2, dim2, kernel_size=(3, 1), padding=(1, 0))
+        self.convblock4_1 = ConvBlock(dim2, dim3, kernel_size=(3, 1), stride=(2, 1), padding=(1, 0))
+        self.convblock4_2 = ConvBlock(dim3, dim3, kernel_size=(3, 1), padding=(1, 0))
+        self.convblock5_1 = ConvBlock(dim3, dim3, stride=2)
+        self.convblock5_2 = ConvBlock(dim3, dim3)
+        self.convblock6_1 = ConvBlock(dim3, dim4, stride=2)
+        self.convblock6_2 = ConvBlock(dim4, dim4)
+        self.convblock7_1 = ConvBlock(dim4, dim4, stride=2)
+        self.convblock7_2 = ConvBlock(dim4, dim4)
+        self.convblock8 = ConvBlock(dim4, dim5, kernel_size=(8, ceil(70 * sample_spatial / 8)), padding=0)
+        
+        self.deconv1_1 = DeconvBlock(dim5, dim5, kernel_size=5)
+        self.deconv1_2 = ConvBlock(dim5, dim5)
+        self.deconv2_1 = DeconvBlock(dim5, dim4, kernel_size=4, stride=2, padding=1)
+        self.deconv2_2 = ConvBlock(dim4 + dim4, dim4)  # Adjusted input dim for skip connection
+        self.deconv3_1 = DeconvBlock(dim4, dim3, kernel_size=4, stride=2, padding=1)
+        self.deconv3_2 = ConvBlock(dim3 + dim3, dim3)  # Adjusted input dim for skip connection
+        self.deconv4_1 = DeconvBlock(dim3, dim2, kernel_size=4, stride=2, padding=1)
+        self.deconv4_2 = ConvBlock(dim2 + dim2, dim2)  # Adjusted input dim for skip connection
+        self.deconv5_1 = DeconvBlock(dim2, dim1, kernel_size=4, stride=2, padding=1)
+        self.deconv5_2 = ConvBlock(dim1 + dim1, dim1)  # Adjusted input dim for skip connection
+        self.deconv6 = ConvBlock_Tanh(dim1, 1)
+        
+    def forward(self,x):
+        # Encoder Part
+        x1 = self.convblock1(x) # (None, 32, 500, 70)
+        x2 = self.convblock2_1(x1) # (None, 64, 250, 70)
+        x2 = self.convblock2_2(x2) # (None, 64, 250, 70)
+        x3 = self.convblock3_1(x2) # (None, 64, 125, 70)
+        x3 = self.convblock3_2(x3) # (None, 64, 125, 70)
+        x4 = self.convblock4_1(x3) # (None, 128, 63, 70) 
+        x4 = self.convblock4_2(x4) # (None, 128, 63, 70)
+        x5 = self.convblock5_1(x4) # (None, 128, 32, 35) 
+        x5 = self.convblock5_2(x5) # (None, 128, 32, 35)
+        x6 = self.convblock6_1(x5) # (None, 256, 16, 18) 
+        x6 = self.convblock6_2(x6) # (None, 256, 16, 18)
+        x7 = self.convblock7_1(x6) # (None, 256, 8, 9) 
+        x7 = self.convblock7_2(x7) # (None, 256, 8, 9)
+        x8 = self.convblock8(x7) # (None, 512, 1, 1)
+        
+        # Decoder Part 
+        x = self.deconv1_1(x8) # (None, 512, 5, 5)
+        x = self.deconv1_2(x) # (None, 512, 5, 5)
+        x = self.deconv2_1(x) # (None, 256, 10, 10) 
+        
+        # Skip connection with x7
+        # Resize x7 if needed to match x's dimensions
+        if x.size() != x7.size():
+            x7_resized = F.interpolate(x7, size=(x.size(2), x.size(3)), mode='bilinear', align_corners=False)
+        else:
+            x7_resized = x7
+        x = torch.cat([x, x7_resized], dim=1)  # Concatenate along channel dimension
+        x = self.deconv2_2(x) # (None, 256, 10, 10)
+        
+        x = self.deconv3_1(x) # (None, 128, 20, 20) 
+        
+        # Skip connection with x5
+        if x.size() != x5.size():
+            x5_resized = F.interpolate(x5, size=(x.size(2), x.size(3)), mode='bilinear', align_corners=False)
+        else:
+            x5_resized = x5
+        x = torch.cat([x, x5_resized], dim=1)
+        x = self.deconv3_2(x) # (None, 128, 20, 20)
+        
+        x = self.deconv4_1(x) # (None, 64, 40, 40) 
+        
+        # Skip connection with x3
+        if x.size() != x3.size():
+            x3_resized = F.interpolate(x3, size=(x.size(2), x.size(3)), mode='bilinear', align_corners=False)
+        else:
+            x3_resized = x3
+        x = torch.cat([x, x3_resized], dim=1)
+        x = self.deconv4_2(x) # (None, 64, 40, 40)
+        
+        x = self.deconv5_1(x) # (None, 32, 80, 80)
+        
+        # Skip connection with x1
+        if x.size() != x1.size():
+            x1_resized = F.interpolate(x1, size=(x.size(2), x.size(3)), mode='bilinear', align_corners=False)
+        else:
+            x1_resized = x1
+        x = torch.cat([x, x1_resized], dim=1)
+        x = self.deconv5_2(x) # (None, 32, 80, 80)
+        
+        x = F.pad(x, [-5, -5, -5, -5], mode="constant", value=0) # (None, 32, 70, 70) 125, 100
+        x = self.deconv6(x) # (None, 1, 70, 70)
+        return x
+
 class FCN4_Deep_Resize_2(nn.Module):
     def __init__(self, dim1=32, dim2=64, dim3=128, dim4=256, dim5=512, ratio=1.0, upsample_mode='nearest'):
         super(FCN4_Deep_Resize_2, self).__init__()
