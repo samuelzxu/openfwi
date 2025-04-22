@@ -37,9 +37,3 @@ for i, data_file_tup in tqdm(enumerate(data_file_tups)):
 
 df = pd.DataFrame(ds_dict)
 df.to_csv('split_files/generated_ds.csv', index=False)
-
-    
-    
-
-
-
