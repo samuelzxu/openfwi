@@ -322,13 +322,15 @@ def main(args):
 
     print('Start training')
     start_time = time.time()
+    best_loss = 10
+    chp = 1
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
         train_one_epoch(model, model_d, criterion_g, criterion_d, optimizer_g, optimizer_d,
                         lr_schedulers, dataloader_train, device, epoch, 
                         args.print_freq, train_writer, args.n_critic)
-        evaluate(model, criterion_g, dataloader_valid, device, val_writer)
+        loss = evaluate(model, criterion_g, dataloader_valid, device, val_writer)
         checkpoint = {
             'model': model_without_ddp.state_dict(),
             'model_d': model_d_without_ddp.state_dict(),
@@ -338,17 +340,27 @@ def main(args):
             'epoch': epoch,
             'step': step,
             'args': args}
-        # Save checkpoint per epoch
-        utils.save_on_master(
-            checkpoint,
-            os.path.join(args.output_path, 'checkpoint.pth'))
+        # Save checkpoint if we have the best validation loss
+        if loss < best_loss:
+            utils.save_on_master(
+                checkpoint,
+                os.path.join(args.output_path, 'checkpoint.pth'))
+            print('saving checkpoint at epoch: ', epoch)
             
-        # Log best model with wandb
-        if not args.distributed or (args.rank == 0 and args.local_rank == 0):
-            if args.save_model_wandb:
-                checkpoint_path = os.path.join(args.output_path, 'checkpoint.pth')
-                wandb.save(checkpoint_path, base_path=args.output_path)
-                
+            # Log best model with wandb
+            if not args.distributed or (args.rank == 0 and args.local_rank == 0):
+                wandb.log({"best_val_loss": loss}, step=step)
+                if args.save_model_wandb:
+                    checkpoint_path = os.path.join(args.output_path, 'checkpoint.pth')
+                    wandb.save(checkpoint_path, base_path=args.output_path)
+            
+            chp = epoch
+            best_loss = loss
+            
+        # Print current best loss information
+        print('current best loss: ', best_loss)
+        print('current best epoch: ', chp)
+            
         # Save checkpoint every epoch block
         if args.output_path and (epoch + 1) % args.epoch_block == 0:
             model_path = os.path.join(args.output_path, 'model_{}.pth'.format(epoch + 1))
