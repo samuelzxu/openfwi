@@ -162,30 +162,20 @@ def main(args):
     transform_label = Compose([
         T.MinMaxNormalize(ctx['label_min'], ctx['label_max'])
     ])
-    if args.train_anno[-3:] == 'txt':
-        dataset_train = FWIDataset(
-            args.train_anno,
-            preload=True,
-            sample_ratio=args.sample_temporal,
-            file_size=ctx['file_size'],
-            transform_data=transform_data,
-            transform_label=transform_label
-        )
-    else:
-        dataset_train = torch.load(args.train_anno)
+    dataset_train = FWIDataset(
+        args.train_anno,
+        sample_ratio=args.sample_temporal,
+        transform_data=transform_data,
+        transform_label=transform_label
+    )
 
     print('Loading validation data')
-    if args.val_anno[-3:] == 'txt':
-        dataset_valid = FWIDataset(
-            args.val_anno,
-            preload=True,
-            sample_ratio=args.sample_temporal,
-            file_size=ctx['file_size'],
-            transform_data=transform_data,
-            transform_label=transform_label
-        )
-    else:
-        dataset_valid = torch.load(args.val_anno)
+    dataset_valid = FWIDataset(
+        args.val_anno,
+        sample_ratio=args.sample_temporal,
+        transform_data=transform_data,
+        transform_label=transform_label
+    )
 
     print('Creating data loaders')
     if args.distributed:
