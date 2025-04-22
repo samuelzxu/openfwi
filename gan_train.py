@@ -30,11 +30,13 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
 import torchvision
 from torchvision.transforms import Compose
+import wandb
 
 import utils
 import network
 from new_dataset import FineFWIDataset
 from scheduler import WarmupMultiStepLR
+from torch.optim.lr_scheduler import CosineAnnealingLR
 import transforms as T
 
 # Need to use parallel in apex, torch ddp can cause bugs when computing gradient penalty
@@ -89,6 +91,25 @@ def train_one_epoch(model, model_d, criterion_g, criterion_d, optimizer_g, optim
             if ((itr + 1) % n_critic == 0) or (itr == max_itr - 1):
                 writer.add_scalar('loss_g1v', loss_g1v, step)
                 writer.add_scalar('loss_g2v', loss_g2v, step)
+                
+        # Log metrics to wandb
+        if not args.distributed or (args.rank == 0 and args.local_rank == 0):
+            wandb_metrics = {
+                'train/loss_diff': loss_diff,
+                'train/loss_gp': loss_gp,
+                'train/lr_g': optimizer_g.param_groups[0]['lr'],
+                'train/lr_d': optimizer_d.param_groups[0]['lr'],
+                'train/samples_per_sec': batch_size / (time.time() - start_time)
+            }
+            
+            if ((itr + 1) % n_critic == 0) or (itr == max_itr - 1):
+                wandb_metrics.update({
+                    'train/loss_g1v': loss_g1v,
+                    'train/loss_g2v': loss_g2v
+                })
+                
+            wandb.log(wandb_metrics, step=step)
+            
         step += 1
         itr += 1
         for lr_scheduler in lr_schedulers:
@@ -99,22 +120,55 @@ def evaluate(model, criterion, dataloader, device, writer):
     model.eval()
     metric_logger = utils.MetricLogger(delimiter='  ')
     header = 'Test:'
+    
+    # Add meter for un-normalized loss
+    metric_logger.add_meter('unnorm_loss_g1v', utils.SmoothedValue(window_size=20, fmt='{value:.8f}'))
+    
     with torch.no_grad():
         for data, label in metric_logger.log_every(dataloader, 20, header):
             data = data.to(device, non_blocking=True)
             label = label.to(device, non_blocking=True)
             pred = model(data)
             loss, loss_g1v, loss_g2v = criterion(pred, label)
+            
+            # Compute un-normalized L1 loss
+            # Get normalization parameters from dataset configuration
+            with open('dataset_config.json') as f:
+                ctx = json.load(f)[args.dataset]
+            
+            # Denormalize predictions and ground truth
+            label_min, label_max = ctx['label_min'], ctx['label_max']
+            pred_unnorm = pred * (label_max - label_min) / 2.0 + (label_max + label_min) / 2.0
+            label_unnorm = label * (label_max - label_min) / 2.0 + (label_max + label_min) / 2.0
+            
+            # Compute un-normalized L1 loss
+            unnorm_loss_g1v = nn.L1Loss()(pred_unnorm, label_unnorm).item()
+            
             metric_logger.update(loss=loss.item(), 
-                                 loss_g1v=loss_g1v.item(), loss_g2v=loss_g2v.item())
+                                 loss_g1v=loss_g1v.item(), 
+                                 loss_g2v=loss_g2v.item(),
+                                 unnorm_loss_g1v=unnorm_loss_g1v)
 
     # Gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print(' * Loss {loss.global_avg:.8f}\n'.format(loss=metric_logger.loss))
+    print(' * Un-normalized G1V Loss {unnorm_loss_g1v.global_avg:.8f}\n'.format(unnorm_loss_g1v=metric_logger.unnorm_loss_g1v))
+    
     if writer:
         writer.add_scalar('loss', metric_logger.loss.global_avg, step)
         writer.add_scalar('loss_g1v', metric_logger.loss_g1v.global_avg, step)
         writer.add_scalar('loss_g2v', metric_logger.loss_g2v.global_avg, step)
+        writer.add_scalar('unnorm_loss_g1v', metric_logger.unnorm_loss_g1v.global_avg, step)
+    
+    # Log validation metrics to wandb
+    if not args.distributed or (args.rank == 0 and args.local_rank == 0):
+        wandb.log({
+            'val/loss': metric_logger.loss.global_avg,
+            'val/loss_g1v': metric_logger.loss_g1v.global_avg,
+            'val/loss_g2v': metric_logger.loss_g2v.global_avg,
+            'val/unnorm_loss_g1v': metric_logger.unnorm_loss_g1v.global_avg
+        }, step=step)
+        
     return metric_logger.loss.global_avg
 
 
@@ -127,6 +181,16 @@ def main(args):
 
     utils.mkdir(args.output_path) # create folder to store checkpoints
     utils.init_distributed_mode(args) # distributed mode initialization
+
+    # Initialize wandb only on the main process in distributed training
+    if not args.distributed or (args.rank == 0 and args.local_rank == 0):
+        wandb_mode = "disabled" if args.no_wandb else "online"
+        wandb.init(
+            project=args.wandb_project,
+            name=f"{args.save_name}_{args.suffix}" if args.suffix else args.save_name,
+            config=vars(args),
+            mode=wandb_mode
+        )
 
     # Set up tensorboard summary writer
     train_writer, val_writer = None, None
@@ -223,13 +287,22 @@ def main(args):
     lr_d = args.lr_d * args.world_size
     optimizer_g = torch.optim.AdamW(model.parameters(), lr=lr_g, betas=(0, 0.9), weight_decay=args.weight_decay)
     optimizer_d = torch.optim.AdamW(model_d.parameters(), lr=lr_d, betas=(0, 0.9), weight_decay=args.weight_decay)
+    
+    # Log model architecture with wandb
+    if not args.distributed or (args.rank == 0 and args.local_rank == 0):
+        wandb.watch(model, log="all", log_freq=args.print_freq)
+        wandb.watch(model_d, log="all", log_freq=args.print_freq)
 
     # Convert scheduler to be per iteration instead of per epoch
-    warmup_iters = args.lr_warmup_epochs * len(dataloader_train)
-    lr_milestones = [len(dataloader_train) * m for m in args.lr_milestones]
-    lr_schedulers = [WarmupMultiStepLR(
-        optimizer, milestones=lr_milestones, gamma=args.lr_gamma,
-        warmup_iters=warmup_iters, warmup_factor=1e-5) for optimizer in [optimizer_g, optimizer_d]]
+    # warmup_iters = args.lr_warmup_epochs * len(dataloader_train)
+    # lr_milestones = [len(dataloader_train) * m for m in args.lr_milestones]
+    # lr_schedulers = [WarmupMultiStepLR(
+    #     optimizer, milestones=lr_milestones, gamma=args.lr_gamma,
+    #     warmup_iters=warmup_iters, warmup_factor=1e-5) for optimizer in [optimizer_g, optimizer_d]]
+    
+    # Use cosine annealing scheduler over all iterations
+    total_iters = args.epochs * len(dataloader_train)
+    lr_schedulers = [CosineAnnealingLR(optimizer, T_max=total_iters) for optimizer in [optimizer_g, optimizer_d]]
 
     model_without_ddp = model
     model_d_without_ddp = model_d
@@ -269,15 +342,30 @@ def main(args):
         utils.save_on_master(
             checkpoint,
             os.path.join(args.output_path, 'checkpoint.pth'))
+            
+        # Log best model with wandb
+        if not args.distributed or (args.rank == 0 and args.local_rank == 0):
+            if args.save_model_wandb:
+                checkpoint_path = os.path.join(args.output_path, 'checkpoint.pth')
+                wandb.save(checkpoint_path, base_path=args.output_path)
+                
         # Save checkpoint every epoch block
         if args.output_path and (epoch + 1) % args.epoch_block == 0:
-            utils.save_on_master(
-                checkpoint,
-                os.path.join(args.output_path, 'model_{}.pth'.format(epoch + 1)))
+            model_path = os.path.join(args.output_path, 'model_{}.pth'.format(epoch + 1))
+            utils.save_on_master(checkpoint, model_path)
+            
+            # Save model to wandb
+            if not args.distributed or (args.rank == 0 and args.local_rank == 0):
+                if args.save_model_wandb:
+                    wandb.save(model_path, base_path=args.output_path)
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
+    
+    # Finish wandb run
+    if not args.distributed or (args.rank == 0 and args.local_rank == 0):
+        wandb.finish()
 
 
 def parse_args():
@@ -334,6 +422,11 @@ def parse_args():
 
     # Tensorboard related
     parser.add_argument('--tensorboard', action='store_true', help='Use tensorboard for logging.')
+    
+    # Wandb related
+    parser.add_argument('--wandb-project', default='OpenFWI', help='wandb project name')
+    parser.add_argument('--no-wandb', action='store_true', help='Disable wandb logging')
+    parser.add_argument('--save-model-wandb', action='store_true', help='Save model checkpoints to wandb')
 
     args = parser.parse_args()
 
