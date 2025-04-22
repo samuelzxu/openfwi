@@ -124,6 +124,7 @@ def evaluate(model, criterion, dataloader, device, writer):
     
     # Add meter for un-normalized loss
     metric_logger.add_meter('unnorm_loss_g1v', utils.SmoothedValue(window_size=20, fmt='{value:.8f}'))
+    metric_logger.add_meter('loss_gan', utils.SmoothedValue(window_size=20, fmt='{value:.8f}'))
     
     with torch.no_grad():
         for data, label in metric_logger.log_every(dataloader, 20, header):
@@ -145,9 +146,10 @@ def evaluate(model, criterion, dataloader, device, writer):
             # Compute un-normalized L1 loss
             unnorm_loss_g1v = nn.L1Loss()(pred_unnorm, label_unnorm).item()
             
-            metric_logger.update(loss=loss.item(), 
+            metric_logger.update(loss=loss_g1v.item(), 
                                  loss_g1v=loss_g1v.item(), 
                                  loss_g2v=loss_g2v.item(),
+                                 loss_gan=loss.item(),
                                  unnorm_loss_g1v=unnorm_loss_g1v)
 
     # Gather the stats from all processes
@@ -160,6 +162,7 @@ def evaluate(model, criterion, dataloader, device, writer):
         writer.add_scalar('loss_g1v', metric_logger.loss_g1v.global_avg, step)
         writer.add_scalar('loss_g2v', metric_logger.loss_g2v.global_avg, step)
         writer.add_scalar('unnorm_loss_g1v', metric_logger.unnorm_loss_g1v.global_avg, step)
+        writer.add_scalar('loss_gan', metric_logger.loss_gan.global_avg, step)
     
     # Log validation metrics to wandb
     if not args.distributed or (args.rank == 0 and args.local_rank == 0):
@@ -167,7 +170,8 @@ def evaluate(model, criterion, dataloader, device, writer):
             'val/loss': metric_logger.loss.global_avg,
             'val/loss_g1v': metric_logger.loss_g1v.global_avg,
             'val/loss_g2v': metric_logger.loss_g2v.global_avg,
-            'val/unnorm_loss_g1v': metric_logger.unnorm_loss_g1v.global_avg
+            'val/unnorm_loss_g1v': metric_logger.unnorm_loss_g1v.global_avg,
+            'val/loss_gan': metric_logger.loss_gan.global_avg
         }, step=step)
         
     return metric_logger.loss.global_avg
