@@ -33,12 +33,12 @@ from torchvision.transforms import Compose
 
 import utils
 import network
-from dataset import FWIDataset
+from new_dataset import FineFWIDataset
 from scheduler import WarmupMultiStepLR
 import transforms as T
 
 # Need to use parallel in apex, torch ddp can cause bugs when computing gradient penalty
-import apex.parallel as parallel
+# import apex.parallel as parallel
 
 step = 0
 
@@ -162,7 +162,7 @@ def main(args):
     transform_label = Compose([
         T.MinMaxNormalize(ctx['label_min'], ctx['label_max'])
     ])
-    dataset_train = FWIDataset(
+    dataset_train = FineFWIDataset(
         args.train_anno,
         sample_ratio=args.sample_temporal,
         transform_data=transform_data,
@@ -170,7 +170,7 @@ def main(args):
     )
 
     print('Loading validation data')
-    dataset_valid = FWIDataset(
+    dataset_valid = FineFWIDataset(
         args.val_anno,
         sample_ratio=args.sample_temporal,
         transform_data=transform_data,
@@ -188,12 +188,12 @@ def main(args):
     dataloader_train = DataLoader(
         dataset_train, batch_size=args.batch_size,
         sampler=train_sampler, num_workers=args.workers,
-        pin_memory=True, drop_last=True, collate_fn=default_collate)
+        drop_last=True, collate_fn=default_collate)
 
     dataloader_valid = DataLoader(
         dataset_valid, batch_size=args.batch_size,
         sampler=valid_sampler, num_workers=args.workers,
-        pin_memory=True, collate_fn=default_collate)
+        collate_fn=default_collate)
 
     print('Creating model')
     if args.model not in network.model_dict or args.model_d not in network.model_dict:
@@ -204,9 +204,6 @@ def main(args):
         sample_spatial=args.sample_spatial, sample_temporal=args.sample_temporal).to(device)
     model_d = network.model_dict[args.model_d]().to(device)
 
-    if args.distributed and args.sync_bn:
-        model = parallel.convert_syncbn_model(model)
-        model_d = parallel.convert_syncbn_model(model_d)
 
     # Define loss function
     l1loss = nn.L1Loss()
@@ -236,11 +233,6 @@ def main(args):
 
     model_without_ddp = model
     model_d_without_ddp = model_d
-    if args.distributed:
-        model = parallel.DistributedDataParallel(model)
-        model_d = parallel.DistributedDataParallel(model_d)
-        model_without_ddp = model.module
-        model_d_without_ddp = model_d.module
 
     if args.resume:
         checkpoint = torch.load(args.resume, map_location='cpu')
@@ -347,8 +339,8 @@ def parse_args():
 
     args.output_path = os.path.join(args.output_path, args.save_name, args.suffix or '')
     args.log_path = os.path.join(args.log_path, args.save_name, args.suffix or '')
-    args.train_anno = os.path.join(args.anno_path, args.train_anno)
-    args.val_anno = os.path.join(args.anno_path, args.val_anno)
+    args.train_anno = args.train_anno
+    args.val_anno = args.val_anno
     
     args.epochs = args.epoch_block * args.num_block
 
