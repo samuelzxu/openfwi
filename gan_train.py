@@ -105,7 +105,8 @@ def train_one_epoch(model, model_d, criterion_g, criterion_d, optimizer_g, optim
             if ((itr + 1) % n_critic == 0) or (itr == max_itr - 1):
                 wandb_metrics.update({
                     'train/loss_g1v': loss_g1v,
-                    'train/loss_g2v': loss_g2v
+                    'train/loss_g2v': loss_g2v,
+                    'train/loss': loss_g1v,
                 })
                 
             wandb.log(wandb_metrics, step=step)
