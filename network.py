@@ -540,11 +540,11 @@ class InversionNet3D(nn.Module):
         
         # Encoder Part - adjust kernel sizes and strides for 3D
         self.convblock1 = ConvBlock3D(1, dim1, kernel_size=(3, 7, 1), stride=(1, 2, 1), padding=(1, 3, 0))
-        self.convblock2_1 = ConvBlock3D(dim1, dim2, kernel_size=(3, 3, 1), stride=(2, 2, 1), padding=(1, 1, 0))
+        self.convblock2_1 = ConvBlock3D(dim1, dim2, kernel_size=(3, 3, 1), stride=(1, 2, 1), padding=(1, 1, 0))
         self.convblock2_2 = ConvBlock3D(dim2, dim2, kernel_size=(3, 3, 1), padding=(1, 1, 0))
         self.convblock3_1 = ConvBlock3D(dim2, dim2, kernel_size=(1, 3, 1), stride=(1, 2, 1), padding=(0, 1, 0))
         self.convblock3_2 = ConvBlock3D(dim2, dim2, kernel_size=(1, 3, 1), padding=(0, 1, 0))
-        self.convblock4_1 = ConvBlock3D(dim2, dim3, kernel_size=(1, 3, 1), stride=(1, 2, 1), padding=(0, 1, 0))
+        self.convblock4_1 = ConvBlock3D(dim2, dim3, kernel_size=(1, 3, 1), stride=(2, 2, 1), padding=(0, 1, 0))
         self.convblock4_2 = ConvBlock3D(dim3, dim3, kernel_size=(1, 3, 1), padding=(0, 1, 0))
         self.convblock5_1 = ConvBlock3D(dim3, dim3, kernel_size=3, stride=(1, 2, 2), padding=1)
         self.convblock5_2 = ConvBlock3D(dim3, dim3, kernel_size=3, padding=1)
@@ -564,10 +564,10 @@ class InversionNet3D(nn.Module):
         self.deconv4_1 = DeconvBlock3D(dim3, dim2, kernel_size=(1, 4, 4), stride=(1, 2, 2), padding=(0, 1, 1))
         self.deconv4_2 = ConvBlock3D(dim2, dim2, kernel_size=3, padding=1)
         self.deconv5_1 = DeconvBlock3D(dim2, dim1, kernel_size=(1, 4, 4), stride=(1, 2, 2), padding=(0, 1, 1))
-        self.deconv5_2 = ConvBlock3D(dim1, dim1, kernel_size=3, padding=1)
+        self.deconv5_2 = ConvBlock3D(dim1, dim1, kernel_size=3, padding=(0,1,1))
         
         # Final layer with padding to match exact dimensions
-        self.deconv6 = ConvBlock_Tanh3D(dim1, 1, kernel_size=3, padding=(0,1,1))
+        self.deconv6 = ConvBlock_Tanh3D(dim1, 1, kernel_size=3, padding=(1,1,1))
         
     def forward(self, x):
         # x shape: [batch, 1, 5, 1000, 70]
