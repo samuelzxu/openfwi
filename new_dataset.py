@@ -34,14 +34,14 @@ class FineFWIDataset(Dataset):
         transform_data|label: transformation applied to data or label
     '''
     def __init__(self, anno, sample_ratio=1, 
-                    transform_data=None, transform_label=None, expand_zero_dim=True):
+                    transform_data=None, transform_label=None, expand_label_zero_dim=True, expand_data_zero_dim=False):
         if not os.path.exists(anno):
             print(f'Annotation file {anno} does not exists')
         self.sample_ratio = sample_ratio
         self.transform_data = transform_data
         self.transform_label = transform_label
-        self.expand_zero_dim = expand_zero_dim
-        
+        self.expand_label_zero_dim = expand_label_zero_dim
+        self.expand_data_zero_dim = expand_data_zero_dim
         assert anno[-4:] == '.csv'
         self.df = pd.read_csv(anno)
         assert set(self.df.columns).intersection({'id', 'absolute_x_path', 'absolute_y_path'}) == {'id', 'absolute_x_path', 'absolute_y_path'}
@@ -52,9 +52,10 @@ class FineFWIDataset(Dataset):
         data = np.load(self.df.iloc[idx]['absolute_x_path'])[ :, ::self.sample_ratio, :].astype(np.float32)
         
         label = np.load(self.df.iloc[idx]['absolute_y_path']).astype(np.float32)
-        if self.expand_zero_dim:
+        if self.expand_label_zero_dim:
             label = np.expand_dims(label, axis=0)
-        
+        if self.expand_data_zero_dim:
+            data = np.expand_dims(data, axis=0)
         if self.transform_data:
             data = self.transform_data(data)
         if self.transform_label and label is not None:
