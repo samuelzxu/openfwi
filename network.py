@@ -567,7 +567,7 @@ class InversionNet3D(nn.Module):
         self.deconv5_2 = ConvBlock3D(dim1, dim1, kernel_size=3, padding=1)
         
         # Final layer with padding to match exact dimensions
-        self.deconv6 = ConvBlock_Tanh3D(dim1, 1, kernel_size=3, padding=1)
+        self.deconv6 = ConvBlock_Tanh3D(dim1, 1, kernel_size=3, padding=(0,1,1))
         
     def forward(self, x):
         # x shape: [batch, 1, 5, 1000, 70]
@@ -599,10 +599,12 @@ class InversionNet3D(nn.Module):
         x = self.deconv4_2(x)      # [batch, 64, 1, 40, 40]
         x = self.deconv5_1(x)      # [batch, 32, 1, 80, 80]
         x = self.deconv5_2(x)      # [batch, 32, 1, 80, 80]
+        print(x.shape)
         
         # Apply padding to match the target output size (70x70)
         x = F.pad(x, [-5, -5, -5, -5, 0, 0], mode="constant", value=0)  # [batch, 32, 1, 70, 70]
         x = self.deconv6(x)        # [batch, 1, 1, 70, 70]
+        print(x.shape)
         
         return x
 
