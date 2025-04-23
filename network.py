@@ -255,7 +255,7 @@ class InversionNet(nn.Module):
         x = self.deconv5_2(x) # (None, 32, 80, 80)
         x = F.pad(x, [-5, -5, -5, -5], mode="constant", value=0) # (None, 32, 70, 70) 125, 100
         x = self.deconv6(x) # (None, 1, 70, 70)
-        return x
+        return x.squeeze()
 
 # FlatFault/CurveFault
 # 1000, 70 -> 70, 70
@@ -552,10 +552,10 @@ class InversionNet3D(nn.Module):
         self.convblock6_2 = ConvBlock3D(dim4, dim4, kernel_size=3, padding=1)
         self.convblock7_1 = ConvBlock3D(dim4, dim4, kernel_size=3, stride=(1, 2, 2), padding=1)
         self.convblock7_2 = ConvBlock3D(dim4, dim4, kernel_size=3, padding=1)
-        self.convblock8 = ConvBlock3D(dim4, dim5, kernel_size=(2, 8, ceil(70 * sample_spatial / 8)), padding=0)
+        self.convblock8 = ConvBlock3D(dim4, dim5, kernel_size=(3, 8, ceil(70 * sample_spatial / 8)), padding=0)
         
         # Decoder Part
-        self.deconv1_1 = DeconvBlock3D(dim5, dim5, kernel_size=(1, 5, 5))
+        self.deconv1_1 = DeconvBlock3D(dim5, dim5, kernel_size=(3, 5, 5))
         self.deconv1_2 = ConvBlock3D(dim5, dim5, kernel_size=3, padding=1)
         self.deconv2_1 = DeconvBlock3D(dim5, dim4, kernel_size=(1, 4, 4), stride=(1, 2, 2), padding=(0, 1, 1))
         self.deconv2_2 = ConvBlock3D(dim4, dim4, kernel_size=3, padding=1)
@@ -599,14 +599,12 @@ class InversionNet3D(nn.Module):
         x = self.deconv4_2(x)      # [batch, 64, 1, 40, 40]
         x = self.deconv5_1(x)      # [batch, 32, 1, 80, 80]
         x = self.deconv5_2(x)      # [batch, 32, 1, 80, 80]
-        print(x.shape)
         
         # Apply padding to match the target output size (70x70)
         x = F.pad(x, [-5, -5, -5, -5, 0, 0], mode="constant", value=0)  # [batch, 32, 1, 70, 70]
         x = self.deconv6(x)        # [batch, 1, 1, 70, 70]
-        print(x.shape)
         
-        return x
+        return x.squeeze()
 
 model_dict = {
     'InversionNet': InversionNet,

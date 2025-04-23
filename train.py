@@ -203,7 +203,9 @@ def main(args):
         args.train_anno,
         sample_ratio=args.sample_temporal,
         transform_data=transform_data,
-        transform_label=transform_label
+        transform_label=transform_label,
+        expand_label_zero_dim=False,
+        expand_data_zero_dim=False
     )
 
 
@@ -212,7 +214,9 @@ def main(args):
         args.val_anno,
         sample_ratio=args.sample_temporal,
         transform_data=transform_data,
-        transform_label=transform_label
+        transform_label=transform_label,
+        expand_label_zero_dim=False,
+        expand_data_zero_dim=False
     )
 
 
