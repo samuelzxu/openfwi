@@ -34,12 +34,13 @@ class FineFWIDataset(Dataset):
         transform_data|label: transformation applied to data or label
     '''
     def __init__(self, anno, sample_ratio=1, 
-                    transform_data=None, transform_label=None):
+                    transform_data=None, transform_label=None, expand_zero_dim=True):
         if not os.path.exists(anno):
             print(f'Annotation file {anno} does not exists')
         self.sample_ratio = sample_ratio
         self.transform_data = transform_data
         self.transform_label = transform_label
+        self.expand_zero_dim = expand_zero_dim
         
         assert anno[-4:] == '.csv'
         self.df = pd.read_csv(anno)
@@ -51,7 +52,8 @@ class FineFWIDataset(Dataset):
         data = np.load(self.df.iloc[idx]['absolute_x_path'])[ :, ::self.sample_ratio, :].astype(np.float32)
         
         label = np.load(self.df.iloc[idx]['absolute_y_path']).astype(np.float32)
-        label = np.expand_dims(label, axis=0)
+        if self.expand_zero_dim:
+            label = np.expand_dims(label, axis=0)
         
         if self.transform_data:
             data = self.transform_data(data)
