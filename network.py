@@ -571,6 +571,7 @@ class InversionNet3D(nn.Module):
         
     def forward(self, x):
         # x shape: [batch, 1, 5, 1000, 70]
+        x = x.squeeze().unsqueeze(1)
         
         # Encoder Part
         x = self.convblock1(x)     # [batch, 32, 5, 500, 70]

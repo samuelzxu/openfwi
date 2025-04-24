@@ -205,7 +205,8 @@ def main(args):
         transform_data=transform_data,
         transform_label=transform_label,
         expand_label_zero_dim=False,
-        expand_data_zero_dim=False
+        expand_data_zero_dim=False,
+        squeeze=True
     )
 
 
@@ -216,7 +217,8 @@ def main(args):
         transform_data=transform_data,
         transform_label=transform_label,
         expand_label_zero_dim=False,
-        expand_data_zero_dim=False
+        expand_data_zero_dim=False,
+        squeeze=True
     )
 
 
