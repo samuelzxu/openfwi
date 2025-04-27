@@ -52,6 +52,7 @@ def train_one_epoch(model, criterion, optimizer, lr_scheduler,
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value}'))
     metric_logger.add_meter('samples/s', utils.SmoothedValue(window_size=10, fmt='{value:.3f}'))
     header = 'Epoch: [{}]'.format(epoch)
+    print(f"Gradient Accum. Steps: {grad_accum_steps}")
 
     optimizer.zero_grad()  # Zero gradients at the beginning
     accum_samples = 0
@@ -72,6 +73,26 @@ def train_one_epoch(model, criterion, optimizer, lr_scheduler,
         loss_g2v_val = loss_g2v.item()
         batch_size = data.shape[0]
         accum_samples += batch_size
+
+        # Log metrics
+        metric_logger.update(loss=loss_val, loss_g1v=loss_g1v_val, 
+            loss_g2v=loss_g2v_val, lr=optimizer.param_groups[0]['lr'])
+        metric_logger.meters['samples/s'].update(accum_samples / (time.time() - start_time))
+        
+        if writer:
+            writer.add_scalar('loss', loss_val, step)
+            writer.add_scalar('loss_g1v', loss_g1v_val, step)
+            writer.add_scalar('loss_g2v', loss_g2v_val, step)
+        
+        # Log metrics to wandb
+        if not args.distributed or (args.rank == 0 and args.local_rank == 0):
+            wandb.log({
+                'train/loss': loss_val,
+                'train/loss_g1v': loss_g1v_val,
+                'train/loss_g2v': loss_g2v_val,
+                'train/lr': optimizer.param_groups[0]['lr'],
+                'train/samples_per_sec': accum_samples / (time.time() - start_time)
+            }, step=step)
         
         # Only update weights after accumulating gradients for specified number of steps
         # or at the end of the epoch
@@ -82,26 +103,6 @@ def train_one_epoch(model, criterion, optimizer, lr_scheduler,
             # Update learning rate after optimizer step
             lr_scheduler.step()
             
-            # Log metrics
-            metric_logger.update(loss=loss_val, loss_g1v=loss_g1v_val, 
-                loss_g2v=loss_g2v_val, lr=optimizer.param_groups[0]['lr'])
-            metric_logger.meters['samples/s'].update(accum_samples / (time.time() - start_time))
-            
-            if writer:
-                writer.add_scalar('loss', loss_val, step)
-                writer.add_scalar('loss_g1v', loss_g1v_val, step)
-                writer.add_scalar('loss_g2v', loss_g2v_val, step)
-            
-            # Log metrics to wandb
-            if not args.distributed or (args.rank == 0 and args.local_rank == 0):
-                wandb.log({
-                    'train/loss': loss_val,
-                    'train/loss_g1v': loss_g1v_val,
-                    'train/loss_g2v': loss_g2v_val,
-                    'train/lr': optimizer.param_groups[0]['lr'],
-                    'train/samples_per_sec': accum_samples / (time.time() - start_time)
-                }, step=step)
-                
             step += 1
             accum_samples = 0  # Reset accumulated samples counter
 
@@ -299,7 +300,7 @@ def main(args):
     # lr_scheduler = WarmupMultiStepLR(
     #     optimizer, milestones=lr_milestones, gamma=args.lr_gamma,
     #     warmup_iters=warmup_iters, warmup_factor=1e-5)
-    lr_scheduler = CosineAnnealingLR(optimizer, T_max=total_update_steps)
+    lr_scheduler = CosineAnnealingLR(optimizer, T_max=total_update_steps, eta_min=args.lr/30)
 
     model_without_ddp = model
     if args.distributed:
