@@ -43,7 +43,7 @@ import transforms as T
 step = 0
 
 def train_one_epoch(model, criterion, optimizer, lr_scheduler, 
-                    dataloader, device, epoch, print_freq, writer):
+                    dataloader, device, epoch, print_freq, writer, grad_accum_steps):
     global step
     model.train()
 
@@ -53,39 +53,57 @@ def train_one_epoch(model, criterion, optimizer, lr_scheduler,
     metric_logger.add_meter('samples/s', utils.SmoothedValue(window_size=10, fmt='{value:.3f}'))
     header = 'Epoch: [{}]'.format(epoch)
 
-    for data, label in metric_logger.log_every(dataloader, print_freq, header):
+    optimizer.zero_grad()  # Zero gradients at the beginning
+    accum_samples = 0
+    
+    for i, (data, label) in enumerate(metric_logger.log_every(dataloader, print_freq, header)):
         start_time = time.time()
-        optimizer.zero_grad()
         data, label = data.to(device), label.to(device)
         output = model(data)
         loss, loss_g1v, loss_g2v = criterion(output, label)
+        
+        # Scale the loss by the number of accumulation steps
+        loss = loss / grad_accum_steps
         loss.backward()
-        optimizer.step()
-
-        loss_val = loss.item()
+        
+        # Keep track of loss values for logging
+        loss_val = loss.item() * grad_accum_steps  # Rescale for logging
         loss_g1v_val = loss_g1v.item()
         loss_g2v_val = loss_g2v.item()
         batch_size = data.shape[0]
-        metric_logger.update(loss=loss_val, loss_g1v=loss_g1v_val, 
-            loss_g2v=loss_g2v_val, lr=optimizer.param_groups[0]['lr'])
-        metric_logger.meters['samples/s'].update(batch_size / (time.time() - start_time))
-        if writer:
-            writer.add_scalar('loss', loss_val, step)
-            writer.add_scalar('loss_g1v', loss_g1v_val, step)
-            writer.add_scalar('loss_g2v', loss_g2v_val, step)
+        accum_samples += batch_size
         
-        # Log metrics to wandb
-        if not args.distributed or (args.rank == 0 and args.local_rank == 0):
-            wandb.log({
-                'train/loss': loss_val,
-                'train/loss_g1v': loss_g1v_val,
-                'train/loss_g2v': loss_g2v_val,
-                'train/lr': optimizer.param_groups[0]['lr'],
-                'train/samples_per_sec': batch_size / (time.time() - start_time)
-            }, step=step)
+        # Only update weights after accumulating gradients for specified number of steps
+        # or at the end of the epoch
+        if (i + 1) % grad_accum_steps == 0 or (i + 1) == len(dataloader):
+            optimizer.step()
+            optimizer.zero_grad()
             
-        step += 1
-        lr_scheduler.step()
+            # Update learning rate after optimizer step
+            lr_scheduler.step()
+            
+            # Log metrics
+            metric_logger.update(loss=loss_val, loss_g1v=loss_g1v_val, 
+                loss_g2v=loss_g2v_val, lr=optimizer.param_groups[0]['lr'])
+            metric_logger.meters['samples/s'].update(accum_samples / (time.time() - start_time))
+            
+            if writer:
+                writer.add_scalar('loss', loss_val, step)
+                writer.add_scalar('loss_g1v', loss_g1v_val, step)
+                writer.add_scalar('loss_g2v', loss_g2v_val, step)
+            
+            # Log metrics to wandb
+            if not args.distributed or (args.rank == 0 and args.local_rank == 0):
+                wandb.log({
+                    'train/loss': loss_val,
+                    'train/loss_g1v': loss_g1v_val,
+                    'train/loss_g2v': loss_g2v_val,
+                    'train/lr': optimizer.param_groups[0]['lr'],
+                    'train/samples_per_sec': accum_samples / (time.time() - start_time)
+                }, step=step)
+                
+            step += 1
+            accum_samples = 0  # Reset accumulated samples counter
 
 
 def evaluate(model, criterion, dataloader, device, writer):
@@ -265,16 +283,23 @@ def main(args):
 
     # Scale lr according to effective batch size
     lr = args.lr * args.world_size
+    # Account for gradient accumulation
+    effective_batch_size = args.batch_size * args.grad_accum_steps
+    if args.scale_lr:
+        lr = lr * (effective_batch_size / args.batch_size)
+        print(f"Scaling learning rate to {lr} for effective batch size of {effective_batch_size}")
+        
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, betas=(0.9, 0.999), weight_decay=args.weight_decay)
 
     # Convert scheduler to be per iteration instead of per epoch
     # warmup_iters = args.lr_warmup_epochs * len(dataloader_train)
-    total_iters = args.epochs * len(dataloader_train)
+    # Adjust for gradient accumulation - each optimizer step occurs after grad_accum_steps batches
+    total_update_steps = (args.epochs * len(dataloader_train) + args.grad_accum_steps - 1) // args.grad_accum_steps
     lr_milestones = [len(dataloader_train) * m for m in args.lr_milestones]
     # lr_scheduler = WarmupMultiStepLR(
     #     optimizer, milestones=lr_milestones, gamma=args.lr_gamma,
     #     warmup_iters=warmup_iters, warmup_factor=1e-5)
-    lr_scheduler = CosineAnnealingLR(optimizer, T_max=total_iters)
+    lr_scheduler = CosineAnnealingLR(optimizer, T_max=total_update_steps)
 
     model_without_ddp = model
     if args.distributed:
@@ -298,7 +323,7 @@ def main(args):
         if args.distributed:
             train_sampler.set_epoch(epoch)
         train_one_epoch(model, criterion, optimizer, lr_scheduler, dataloader_train,
-                        device, epoch, args.print_freq, train_writer)
+                        device, epoch, args.print_freq, train_writer, args.grad_accum_steps)
         
         loss = evaluate(model, criterion, dataloader_valid, device, val_writer)
         
@@ -367,8 +392,11 @@ def parse_args():
     parser.add_argument('-um', '--up-mode', default=None, help='upsampling layer mode such as "nearest", "bicubic", etc.')
     parser.add_argument('-ss', '--sample-spatial', type=float, default=1.0, help='spatial sampling ratio')
     parser.add_argument('-st', '--sample-temporal', type=int, default=1, help='temporal sampling ratio')
+    
     # Training related
     parser.add_argument('-b', '--batch-size', default=256, type=int)
+    parser.add_argument('--grad-accum-steps', default=1, type=int, help='number of gradient accumulation steps')
+    parser.add_argument('--scale-lr', action='store_true', help='scale learning rate by gradient accumulation steps')
     parser.add_argument('--lr', default=0.0001, type=float, help='initial learning rate')
     parser.add_argument('-lm', '--lr-milestones', nargs='+', default=[], type=int, help='decrease lr on milestones')
     parser.add_argument('--momentum', default=0.9, type=float, help='momentum')
