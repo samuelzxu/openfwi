@@ -142,17 +142,19 @@ def evaluate(model, criterion, dataloader, device, writer):
             
             # Compute un-normalized L1 loss
             unnorm_loss_g1v = nn.L1Loss()(output_unnorm, label_unnorm).item()
-            unnorm_loss_g1v_expanded = nn.L1Loss(reduction='none')(output_unnorm, label_unnorm).mean(dim=(2,3))
-            print(unnorm_loss_g1v_expanded.shape)
+            unnorm_loss_g1v_expanded = nn.L1Loss(reduction='none')(output_unnorm, label_unnorm).mean(dim=(1,2))
 
             for dt in data_types:
                 indices = np.where([dt in p for p in paths])
-                g1v_unnorm_by_dt[dt].append(unnorm_loss_g1v_expanded[indices])
+                g1v_unnorm_by_dt[dt].append(unnorm_loss_g1v_expanded[indices].cpu().numpy())
             metric_logger.update(loss=loss.item(), 
                 loss_g1v=loss_g1v.item(), 
                 loss_g2v=loss_g2v.item(),
                 unnorm_loss_g1v=unnorm_loss_g1v)
-    
+            
+    for dt in data_types:
+        g1v_unnorm_by_dt[dt] = np.concatenate(g1v_unnorm_by_dt[dt], axis=0)
+        print(f"{dt} unnorm g1v: {g1v_unnorm_by_dt[dt].mean()}")
     
     # Gather the stats from all processes
     metric_logger.synchronize_between_processes()
