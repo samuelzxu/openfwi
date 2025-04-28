@@ -111,12 +111,17 @@ def evaluate(model, criterion, dataloader, device, writer):
     model.eval()
     metric_logger = utils.MetricLogger(delimiter='  ')
     header = 'Test:'
-    
+
+    data_types = ['Style_A','Style_B','CurveFault_A','CurveFault_B','FlatFault_A','FlatFault_B','CurveVel_A','CurveVel_B','FlatVel_A','FlatVel_B']
+    g1v_unnorm_by_dt = {
+        dt: [] for dt in data_types
+    }
     # Add meter for un-normalized loss
+    all_paths = []
     metric_logger.add_meter('unnorm_loss_g1v', utils.SmoothedValue(window_size=20, fmt='{value:.8f}'))
-    
     with torch.no_grad():
-        for data, label in metric_logger.log_every(dataloader, 20, header):
+        for data, label, paths in metric_logger.log_every(dataloader, 20, header):
+            all_paths.extend(paths)
             data = data.to(device, non_blocking=True)
             label = label.to(device, non_blocking=True)
             output = model(data)
@@ -129,6 +134,8 @@ def evaluate(model, criterion, dataloader, device, writer):
             
             # Denormalize predictions and ground truth
             label_min, label_max = ctx['label_min'], ctx['label_max']
+
+            # Shape [batch_size, 70, 70]
             output_unnorm = output * (label_max - label_min) / 2.0 + (label_max + label_min) / 2.0
             label_unnorm = label * (label_max - label_min) / 2.0 + (label_max + label_min) / 2.0
             
@@ -139,7 +146,8 @@ def evaluate(model, criterion, dataloader, device, writer):
                 loss_g1v=loss_g1v.item(), 
                 loss_g2v=loss_g2v.item(),
                 unnorm_loss_g1v=unnorm_loss_g1v)
-
+    
+    
     # Gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print(' * Loss {loss.global_avg:.8f}\n'.format(loss=metric_logger.loss))
@@ -157,7 +165,7 @@ def evaluate(model, criterion, dataloader, device, writer):
             'val/loss': metric_logger.loss.global_avg,
             'val/loss_g1v': metric_logger.loss_g1v.global_avg,
             'val/loss_g2v': metric_logger.loss_g2v.global_avg,
-            'val/unnorm_loss_g1v': metric_logger.unnorm_loss_g1v.global_avg
+            'val/unnorm_loss_g1v': metric_logger.unnorm_loss_g1v.global_avg,
         }, step=step)
         
     return metric_logger.loss.global_avg
@@ -240,6 +248,7 @@ def main(args):
         squeeze=True
     )
 
+    dataset_valid.set_return_path(True)
 
     print('Creating data loaders')
     if args.distributed:
@@ -323,10 +332,13 @@ def main(args):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
+        
+        loss = evaluate(model, criterion, dataloader_valid, device, val_writer)
+
         train_one_epoch(model, criterion, optimizer, lr_scheduler, dataloader_train,
                         device, epoch, args.print_freq, train_writer, args.grad_accum_steps)
         
-        loss = evaluate(model, criterion, dataloader_valid, device, val_writer)
+        #loss = evaluate(model, criterion, dataloader_valid, device, val_writer)
         
         checkpoint = {
             'model': model_without_ddp.state_dict(),

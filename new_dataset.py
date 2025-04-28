@@ -43,12 +43,16 @@ class FineFWIDataset(Dataset):
         self.expand_label_zero_dim = expand_label_zero_dim
         self.expand_data_zero_dim = expand_data_zero_dim
         self.squeeze = squeeze
+        self.return_path = False
         assert anno[-4:] == '.csv'
         self.df = pd.read_csv(anno)
         assert set(self.df.columns).intersection({'id', 'absolute_x_path', 'absolute_y_path'}) == {'id', 'absolute_x_path', 'absolute_y_path'}
         assert self.df['absolute_x_path'].apply(lambda x: x[-4:] == '.npy').all()
         assert self.df['absolute_y_path'].apply(lambda x: x[-4:] == '.npy').all()
-        
+    
+    def set_return_path(self, return_path):
+        self.return_path = return_path
+    
     def __getitem__(self, idx):
         data = np.load(self.df.iloc[idx]['absolute_x_path'])[ :, ::self.sample_ratio, :].astype(np.float32)
         
@@ -64,7 +68,12 @@ class FineFWIDataset(Dataset):
         if self.squeeze:
             label = label.squeeze()
             data = data.squeeze()
-        return data, label if label is not None else np.array([])
+        
+        if self.return_path:
+            return data, label, self.df.iloc[idx]['absolute_x_path'] if label is not None else np.array([])
+        else:
+            return data, label if label is not None else np.array([])
+    
         
     def __len__(self):
         return len(self.df)
