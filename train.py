@@ -21,6 +21,7 @@ import sys
 import time
 import datetime
 import json
+import numpy as np
 
 import torch
 from torch import nn
@@ -141,7 +142,12 @@ def evaluate(model, criterion, dataloader, device, writer):
             
             # Compute un-normalized L1 loss
             unnorm_loss_g1v = nn.L1Loss()(output_unnorm, label_unnorm).item()
-            
+            unnorm_loss_g1v_expanded = nn.L1Loss(reduction='none')(output_unnorm, label_unnorm).mean(dim=(2,3))
+            print(unnorm_loss_g1v_expanded.shape)
+
+            for dt in data_types:
+                indices = np.where([dt in p for p in paths])
+                g1v_unnorm_by_dt[dt].append(unnorm_loss_g1v_expanded[indices])
             metric_logger.update(loss=loss.item(), 
                 loss_g1v=loss_g1v.item(), 
                 loss_g2v=loss_g2v.item(),
