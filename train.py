@@ -174,6 +174,7 @@ def evaluate(model, criterion, dataloader, device, writer):
             'val/loss_g1v': metric_logger.loss_g1v.global_avg,
             'val/loss_g2v': metric_logger.loss_g2v.global_avg,
             'val/unnorm_loss_g1v': metric_logger.unnorm_loss_g1v.global_avg,
+            **{f'val/unnorm_loss_g1v_{dt}': g1v_unnorm_by_dt[dt].mean() for dt in data_types}
         }, step=step)
         
     return metric_logger.loss.global_avg
