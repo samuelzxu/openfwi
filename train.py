@@ -155,6 +155,7 @@ def evaluate(model, criterion, dataloader, device, writer):
     for dt in data_types:
         g1v_unnorm_by_dt[dt] = np.concatenate(g1v_unnorm_by_dt[dt], axis=0)
         print(f"{dt} unnorm g1v: {g1v_unnorm_by_dt[dt].mean()}")
+        print(f"Total elements: {g1v_unnorm_by_dt[dt]}")
     
     # Gather the stats from all processes
     metric_logger.synchronize_between_processes()
