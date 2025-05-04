@@ -40,6 +40,7 @@ import network
 from scheduler import WarmupMultiStepLR
 from torch.optim.lr_scheduler import CosineAnnealingLR
 import transforms as T
+from weighted_sampler import WeightedStratifiedSampler
 
 step = 0
 
@@ -152,9 +153,12 @@ def evaluate(model, criterion, dataloader, device, writer):
                 loss_g2v=loss_g2v.item(),
                 unnorm_loss_g1v=unnorm_loss_g1v)
             
+    # Calculate mean unnormalized loss per data type
+    g1v_means = {}
     for dt in data_types:
-        g1v_unnorm_by_dt[dt] = np.concatenate(g1v_unnorm_by_dt[dt], axis=0)
-        print(f"{dt} unnorm g1v: {g1v_unnorm_by_dt[dt].mean()}")
+        if g1v_unnorm_by_dt[dt]:
+            g1v_means[dt] = np.concatenate(g1v_unnorm_by_dt[dt], axis=0).mean()
+            print(f"{dt} unnorm g1v: {g1v_means[dt]}")
     
     # Gather the stats from all processes
     metric_logger.synchronize_between_processes()
@@ -174,10 +178,10 @@ def evaluate(model, criterion, dataloader, device, writer):
             'val/loss_g1v': metric_logger.loss_g1v.global_avg,
             'val/loss_g2v': metric_logger.loss_g2v.global_avg,
             'val/unnorm_loss_g1v': metric_logger.unnorm_loss_g1v.global_avg,
-            **{f'val/unnorm_loss_g1v_{dt}': g1v_unnorm_by_dt[dt].mean() for dt in data_types}
+            **{f'val/unnorm_loss_g1v_{dt}': g1v_means[dt] for dt in data_types if dt in g1v_means}
         }, step=step)
         
-    return metric_logger.loss.global_avg
+    return metric_logger.loss.global_avg, g1v_means
 
 
 def main(args):
@@ -260,11 +264,21 @@ def main(args):
     dataset_valid.set_return_path(True)
 
     print('Creating data loaders')
+    data_types = ['Style_A','Style_B','CurveFault_A','CurveFault_B','FlatFault_A','FlatFault_B','CurveVel_A','CurveVel_B','FlatVel_A','FlatVel_B']
+    
+    # Initialize weighted sampler with uniform weights
+    train_sampler = WeightedStratifiedSampler(
+        dataset_train, 
+        data_types=data_types,
+        distributed=args.distributed,
+        num_replicas=args.world_size if args.distributed else None,
+        rank=args.rank if args.distributed else None,
+        shuffle=True
+    )
+    
     if args.distributed:
-        train_sampler = DistributedSampler(dataset_train, shuffle=True)
         valid_sampler = DistributedSampler(dataset_valid, shuffle=True)
     else:
-        train_sampler = RandomSampler(dataset_train)
         valid_sampler = RandomSampler(dataset_valid)
 
     dataloader_train = DataLoader(
@@ -342,12 +356,14 @@ def main(args):
         if args.distributed:
             train_sampler.set_epoch(epoch)
         
-        loss = evaluate(model, criterion, dataloader_valid, device, val_writer)
+        # Run validation first to get initial weights
+        loss, g1v_means = evaluate(model, criterion, dataloader_valid, device, val_writer)
+        
+        # Update sampler weights based on validation loss
+        train_sampler.update_weights(g1v_means)
 
         train_one_epoch(model, criterion, optimizer, lr_scheduler, dataloader_train,
                         device, epoch, args.print_freq, train_writer, args.grad_accum_steps)
-        
-        #loss = evaluate(model, criterion, dataloader_valid, device, val_writer)
         
         checkpoint = {
             'model': model_without_ddp.state_dict(),

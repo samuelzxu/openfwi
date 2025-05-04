@@ -607,11 +607,246 @@ class InversionNet3D(nn.Module):
         
         return x.squeeze()
 
+# U-Net Model Definition (Formatted for Readability with Residual Blocks)
+
+class ResidualDoubleConv(nn.Module):
+    """(Convolution => [BN] => ReLU) * 2 + Residual Connection"""
+
+    def __init__(self, in_channels, out_channels, mid_channels=None):
+        super().__init__()
+        if not mid_channels:
+            mid_channels = out_channels
+
+        # First convolution layer
+        self.conv1 = nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(mid_channels)
+        self.relu = nn.ReLU(inplace=True)
+
+        # Second convolution layer
+        self.conv2 = nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+
+        # Shortcut connection to handle potential channel mismatch
+        if in_channels == out_channels:
+            self.shortcut = nn.Identity()
+        else:
+            # Projection shortcut: 1x1 conv + BN to match output channels
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False),
+                nn.BatchNorm2d(out_channels)
+            )
+
+    def forward(self, x):
+        identity = x  # Store the input for the residual connection
+
+        # First conv block
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        # Second conv block (without final ReLU yet)
+        out = self.conv2(out)
+        out = self.bn2(out)
+
+        # Apply shortcut to the identity path
+        identity_mapped = self.shortcut(identity)
+
+        # Add the residual connection
+        out += identity_mapped
+
+        # Apply final ReLU
+        out = self.relu(out)
+        return out
+
+
+class Up(nn.Module):
+    """Upscaling then ResidualDoubleConv"""
+
+    def __init__(self, in_channels, out_channels, bilinear=True):
+        super().__init__()
+        self.bilinear = bilinear
+
+        if bilinear:
+            self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
+            # Input to ResidualDoubleConv = channels from upsampled layer below + channels from skip connection
+            # Output of ResidualDoubleConv = desired output channels for this decoder stage
+            self.conv = ResidualDoubleConv(in_channels + out_channels, out_channels) # Use ResidualDoubleConv
+
+        else: # Using ConvTranspose2d
+            # ConvTranspose halves the channels: in_channels -> in_channels // 2
+            self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
+            # Input channels to ResidualDoubleConv
+            conv_in_channels = in_channels // 2 # Channels after ConvTranspose
+            skip_channels = out_channels       # Channels from skip connection
+            total_in_channels = conv_in_channels + skip_channels
+            self.conv = ResidualDoubleConv(total_in_channels, out_channels) # Use ResidualDoubleConv
+
+    def forward(self, x1, x2):
+        # x1 is the feature map from the layer below (needs upsampling)
+        # x2 is the skip connection from the corresponding encoder layer
+        x1 = self.up(x1)
+
+        # Pad x1 if its dimensions don't match x2 after upsampling
+        # Input is CHW
+        diffY = x2.size(2) - x1.size(2)
+        diffX = x2.size(3) - x1.size(3)
+
+        # Pad format: (padding_left, padding_right, padding_top, padding_bottom)
+        x1 = F.pad(
+            x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2]
+        )
+
+        # Concatenate along the channel dimension
+        x = torch.cat([x2, x1], dim=1)
+        return self.conv(x)
+
+
+class OutConv(nn.Module):
+    """1x1 Convolution for the output layer"""
+
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+class UNet(nn.Module):
+    """U-Net architecture implementation with Residual Blocks"""
+
+    def __init__(
+        self,
+        n_channels=cfg.unet_in_channels,
+        n_classes=cfg.unet_out_channels,
+        init_features=cfg.unet_init_features,
+        depth=cfg.unet_depth, # number of pooling layers
+        bilinear=cfg.unet_bilinear,
+    ):
+        super().__init__()
+        self.n_channels = n_channels
+        self.n_classes = n_classes
+        self.bilinear = bilinear
+        self.depth = depth
+
+        self.initial_pool = nn.AvgPool2d(kernel_size=(14, 1), stride=(14, 1))
+
+        # --- Encoder ---
+        self.encoder_convs = nn.ModuleList() # Store conv blocks
+        self.encoder_pools = nn.ModuleList() # Store pool layers
+
+        # Initial conv block (no pooling before it)
+        # Use ResidualDoubleConv for the initial convolution block
+        self.inc = ResidualDoubleConv(n_channels, init_features)
+        self.encoder_convs.append(self.inc)
+
+        current_features = init_features
+        for _ in range(depth):
+            # Define convolution block for this stage
+            conv = ResidualDoubleConv(current_features, current_features * 2)
+            # Define pooling layer for this stage
+            pool = nn.MaxPool2d(2)
+            self.encoder_convs.append(conv)
+            self.encoder_pools.append(pool)
+            current_features *= 2
+
+        # --- Bottleneck ---
+        # Use ResidualDoubleConv for the bottleneck
+        self.bottleneck = ResidualDoubleConv(current_features, current_features)
+
+        # --- Decoder ---
+        self.decoder_blocks = nn.ModuleList()
+        # Input features start from bottleneck output features
+        # Output features at each stage are halved
+        for _ in range(depth):
+            # Up block uses ResidualDoubleConv internally and handles channels
+            up_block = Up(current_features, current_features // 2, bilinear)
+            self.decoder_blocks.append(up_block)
+            current_features //= 2 # Halve features for next Up block input
+
+        # --- Output Layer ---
+        # Input features are the output features of the last Up block
+        self.outc = OutConv(current_features, n_classes)
+
+    def _pad_or_crop(self, x, target_h=70, target_w=70):
+        """Pads or crops input tensor x to target height and width."""
+        _, _, h, w = x.shape
+        # Pad Height if needed
+        if h < target_h:
+            pad_top = (target_h - h) // 2
+            pad_bottom = target_h - h - pad_top
+            x = F.pad(x, (0, 0, pad_top, pad_bottom))  # Pad height only
+            h = target_h
+        # Pad Width if needed
+        if w < target_w:
+            pad_left = (target_w - w) // 2
+            pad_right = target_w - w - pad_left
+            x = F.pad(x, (pad_left, pad_right, 0, 0))  # Pad width only
+            w = target_w
+        # Crop Height if needed
+        if h > target_h:
+            crop_top = (h - target_h) // 2
+            # Use slicing to crop
+            x = x[:, :, crop_top : crop_top + target_h, :]
+            h = target_h
+        # Crop Width if needed
+        if w > target_w:
+            crop_left = (w - target_w) // 2
+            x = x[:, :, :, crop_left : crop_left + target_w]
+            w = target_w
+        return x
+
+    def forward(self, x):
+        # Initial pooling and resizing
+        x_pooled = self.initial_pool(x)
+        x_resized = self._pad_or_crop(x_pooled, target_h=70, target_w=70)
+
+        # --- Encoder Path ---
+        skip_connections = []
+        xi = x_resized
+
+        # Apply initial conv (inc)
+        xi = self.encoder_convs[0](xi)
+        skip_connections.append(xi) # Store output of inc
+
+        # Apply subsequent encoder convs and pools
+        # self.depth is the number of pooling layers
+        for i in range(self.depth):
+            # Apply conv block for this stage
+            xi = self.encoder_convs[i+1](xi)
+            # Store skip connection *before* pooling
+            skip_connections.append(xi)
+            # Apply pooling layer for this stage
+            xi = self.encoder_pools[i](xi)
+
+        # Apply bottleneck conv
+        xi = self.bottleneck(xi)
+
+        # --- Decoder Path ---
+        xu = xi # Start with bottleneck output
+        # Iterate through decoder blocks and corresponding skip connections in reverse
+        for i, block in enumerate(self.decoder_blocks):
+            # Determine the correct skip connection index from the end
+            # Example: depth=5. Skips stored: [inc, enc1, enc2, enc3, enc4] (indices 0-4)
+            # Decoder 0 (Up(1024, 512)) needs skip 4 (enc4)
+            # Decoder 1 (Up(512, 256)) needs skip 3 (enc3) ...
+            # Decoder 4 (Up(64, 32)) needs skip 0 (inc)
+            skip_index = self.depth - 1 - i
+            skip = skip_connections[skip_index]
+            xu = block(xu, skip) # Up block combines xu (from below) and skip
+
+        # --- Final Output ---
+        logits = self.outc(xu)
+        # Apply scaling and offset specific to the problem's target range
+        output = logits * 1000.0 + 1500.0
+        return output
+
 model_dict = {
     'InversionNet': InversionNet,
     'Discriminator': Discriminator,
     'UPFWI': FCN4_Deep_Resize_2,
     'InversionNetSkip': InversionNetSkip,
     'InversionNet3D': InversionNet3D,
+    'UNet': UNet,
 }
 
