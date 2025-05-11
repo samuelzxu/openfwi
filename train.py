@@ -246,7 +246,8 @@ def main(args):
         transform_label=transform_label,
         expand_label_zero_dim=False,
         expand_data_zero_dim=False,
-        squeeze=True
+        squeeze=True,
+        mode="train" # Use "train" mode for data augmentation
     )
 
 
@@ -258,7 +259,8 @@ def main(args):
         transform_label=transform_label,
         expand_label_zero_dim=False,
         expand_data_zero_dim=False,
-        squeeze=True
+        squeeze=True,
+        mode="val" # Use "val" mode for no data augmentation
     )
 
     dataset_valid.set_return_path(True)
@@ -295,9 +297,12 @@ def main(args):
     if args.model not in network.model_dict:
         print('Unsupported model.')
         sys.exit()
-    model = network.model_dict[args.model](upsample_mode=args.up_mode, 
-        sample_spatial=args.sample_spatial, sample_temporal=args.sample_temporal).to(device)
     
+    # UNet doesn't require these parameters
+    # model = network.model_dict[args.model](upsample_mode=args.up_mode, 
+    #     sample_spatial=args.sample_spatial, sample_temporal=args.sample_temporal).to(device)
+    model = network.model_dict[args.model]().to(device)
+
     # Log model architecture with wandb
     if not args.distributed or (args.rank == 0 and args.local_rank == 0):
         wandb.watch(model, log="all", log_freq=args.print_freq)

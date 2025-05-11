@@ -34,7 +34,7 @@ class FineFWIDataset(Dataset):
         transform_data|label: transformation applied to data or label
     '''
     def __init__(self, anno, sample_ratio=1, 
-                    transform_data=None, transform_label=None, expand_label_zero_dim=True, expand_data_zero_dim=False, squeeze=False):
+                    transform_data=None, transform_label=None, expand_label_zero_dim=True, expand_data_zero_dim=False, squeeze=False, mode="train"):
         if not os.path.exists(anno):
             print(f'Annotation file {anno} does not exists')
         self.sample_ratio = sample_ratio
@@ -43,6 +43,7 @@ class FineFWIDataset(Dataset):
         self.expand_label_zero_dim = expand_label_zero_dim
         self.expand_data_zero_dim = expand_data_zero_dim
         self.squeeze = squeeze
+        self.mode = mode
         self.return_path = False
         assert anno[-4:] == '.csv'
         self.df = pd.read_csv(anno)
@@ -61,6 +62,15 @@ class FineFWIDataset(Dataset):
             label = np.expand_dims(label, axis=0)
         if self.expand_data_zero_dim:
             data = np.expand_dims(data, axis=0)
+        if self.mode == "train" and np.random.random() < 0.5:
+            # Receiver Flip
+            if np.random.random() < 0.5:
+                data= data[::-1, :, ::-1]
+                label= label[:, ::-1]
+            # Random noise with std 0.01
+            noise = np.random.normal(0, 0.01, data.shape).astype(np.float32)
+            data = data + noise
+
         if self.transform_data:
             data = self.transform_data(data)
         if self.transform_label and label is not None:

@@ -717,11 +717,11 @@ class UNet(nn.Module):
 
     def __init__(
         self,
-        n_channels=cfg.unet_in_channels,
-        n_classes=cfg.unet_out_channels,
-        init_features=cfg.unet_init_features,
-        depth=cfg.unet_depth, # number of pooling layers
-        bilinear=cfg.unet_bilinear,
+        n_channels=5,
+        n_classes=1,
+        init_features=32,
+        depth=5, # number of pooling layers
+        bilinear=True,
     ):
         super().__init__()
         self.n_channels = n_channels
@@ -838,8 +838,8 @@ class UNet(nn.Module):
         # --- Final Output ---
         logits = self.outc(xu)
         # Apply scaling and offset specific to the problem's target range
-        output = logits * 1000.0 + 1500.0
-        return output
+        # output = logits * 1000.0 + 1500.0
+        return logits.squeeze()  # Remove the channel dimension
 
 model_dict = {
     'InversionNet': InversionNet,

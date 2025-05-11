@@ -100,6 +100,7 @@ class WeightedStratifiedSampler(Sampler):
                                              replace=True).tolist())
             else:
                 indices.extend(stratum_indices[:samples_per_type[dt]])
+            print(f"Sampled {samples_per_type[dt]} samples from {dt} stratum")
                 
         if self.shuffle:
             # Shuffle all sampled indices
