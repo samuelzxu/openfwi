@@ -108,6 +108,18 @@ def train_one_epoch(model, criterion, optimizer, lr_scheduler,
             step += 1
             accum_samples = 0  # Reset accumulated samples counter
 
+dummy_g1v_means = {
+    'Style_A': 10.0,
+    'Style_B': 10.0,
+    'CurveFault_A': 10.0,
+    'CurveFault_B': 10.0,
+    'FlatFault_A': 10.0,
+    'FlatFault_B': 10.0,
+    'CurveVel_A': 10.0,
+    'CurveVel_B': 10.0,
+    'FlatVel_A': 10.0,
+    'FlatVel_B': 10.0
+}
 
 def evaluate(model, criterion, dataloader, device, writer):
     model.eval()
@@ -244,9 +256,9 @@ def main(args):
         sample_ratio=args.sample_temporal,
         transform_data=transform_data,
         transform_label=transform_label,
-        expand_label_zero_dim=False,
+        expand_label_zero_dim=True,
         expand_data_zero_dim=False,
-        squeeze=True,
+        squeeze=False,
         mode="train" # Use "train" mode for data augmentation
     )
 
@@ -257,9 +269,9 @@ def main(args):
         sample_ratio=args.sample_temporal,
         transform_data=transform_data,
         transform_label=transform_label,
-        expand_label_zero_dim=False,
+        expand_label_zero_dim=True,
         expand_data_zero_dim=False,
-        squeeze=True,
+        squeeze=False,
         mode="val" # Use "val" mode for no data augmentation
     )
 
@@ -361,14 +373,19 @@ def main(args):
         if args.distributed:
             train_sampler.set_epoch(epoch)
         
+        
+
         # Run validation first to get initial weights
-        loss, g1v_means = evaluate(model, criterion, dataloader_valid, device, val_writer)
+        if epoch == args.start_epoch:
+            g1v_means = dummy_g1v_means
         
         # Update sampler weights based on validation loss
         train_sampler.update_weights(g1v_means)
 
         train_one_epoch(model, criterion, optimizer, lr_scheduler, dataloader_train,
                         device, epoch, args.print_freq, train_writer, args.grad_accum_steps)
+
+        loss, g1v_means = evaluate(model, criterion, dataloader_valid, device, val_writer)
         
         checkpoint = {
             'model': model_without_ddp.state_dict(),
