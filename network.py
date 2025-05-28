@@ -972,6 +972,7 @@ class DecoderBlock2d(nn.Module):
         intermediate_conv: bool = False,
         upsample_mode: str = "deconv",
         scale_factor: int = 2,
+        dropout: float = 0.0,
     ):
         super().__init__()
 
@@ -990,6 +991,15 @@ class DecoderBlock2d(nn.Module):
                 scale_factor= scale_factor,
                 mode= upsample_mode,
             )
+
+        if dropout > 0.0:
+            self.dropout1 = nn.Dropout(dropout)
+            self.dropout2 = nn.Dropout(dropout)
+            self.dropout3 = nn.Dropout(dropout)
+        else:
+            self.dropout1 = nn.Identity()
+            self.dropout2 = nn.Identity()
+            self.dropout3 = nn.Identity()
 
         if intermediate_conv:
             k= 3
@@ -1028,6 +1038,7 @@ class DecoderBlock2d(nn.Module):
 
     def forward(self, x, skip=None):
         x = self.upsample(x)
+        x = self.dropout1(x)
 
         if self.intermediate_conv is not None:
             if skip is not None:
@@ -1036,13 +1047,14 @@ class DecoderBlock2d(nn.Module):
                 x = self.intermediate_conv(x)
 
         if skip is not None:
-            # print(x.shape, skip.shape)
             x = torch.cat([x, skip], dim=1)
             x = self.attention1(x)
+            x = self.dropout2(x)
 
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.attention2(x)
+        x = self.dropout3(x)
         return x
 
 
@@ -1061,6 +1073,7 @@ class UnetDecoder2d(nn.Module):
         attention_type: str = None,
         intermediate_conv: bool = False,
         upsample_mode: str = "deconv",
+        dropout: float = 0.0,
     ):
         super().__init__()
         
@@ -1085,6 +1098,7 @@ class UnetDecoder2d(nn.Module):
                     intermediate_conv= intermediate_conv,
                     upsample_mode= upsample_mode,
                     scale_factor= scale_factors[i],
+                    dropout= dropout,
                     )
             )
 
@@ -1160,6 +1174,8 @@ class CoolNet(nn.Module):
         self,
         backbone: str = 'convnext_small.fb_in22k_ft_in1k',
         pretrained: bool = False,
+        encoder_dropout: float = 0.1,
+        decoder_dropout: float = 0.2,
     ):
         super().__init__()
         
@@ -1169,13 +1185,16 @@ class CoolNet(nn.Module):
             in_chans= 5,
             pretrained= pretrained,
             features_only= True,
-            drop_path_rate=0.0,
+            drop_path_rate=encoder_dropout,  # Add dropout to encoder
             )
         ecs= [_["num_chs"] for _ in self.backbone.feature_info][::-1]
 
         # Decoder
         self.decoder= UnetDecoder2d(
             encoder_channels= ecs,
+            dropout= decoder_dropout,  # Higher dropout in decoder
+            attention_type= "scse",  # Add attention mechanism
+            intermediate_conv= True,  # Add intermediate convolutions
         )
 
         self.seg_head= SegmentationHead2d(

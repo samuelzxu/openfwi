@@ -99,6 +99,8 @@ def train_one_epoch(model, criterion, optimizer, lr_scheduler,
         # Only update weights after accumulating gradients for specified number of steps
         # or at the end of the epoch
         if (i + 1) % grad_accum_steps == 0 or (i + 1) == len(dataloader):
+            if args.model == 'CoolNet':
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=3.0)
             optimizer.step()
             optimizer.zero_grad()
             
