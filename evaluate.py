@@ -51,7 +51,7 @@ def evaluate_and_visualize_worst(model, dataset, device, output_dir, top_k, data
             data = data.to(device)
             
             # Get model prediction and move to cpu for denormalization
-            prediction = model(data).cpu() 
+            prediction = model(data).cpu().unsqueeze(1)  # Remove batch dim and squeeze channel dim if needed
 
             # Denormalize prediction and ground truth
             prediction_unnorm = prediction * (label_max - label_min) / 2.0 + (label_max + label_min) / 2.0
@@ -198,8 +198,8 @@ def parse_args():
     parser.add_argument('-st', '--sample-temporal', type=int, default=1, help='temporal sampling ratio')
     
     # Evaluation and Visualization related
-    parser.add_argument('--top-k', default=5, type=int, help='number of worst samples to visualize')
-    parser.add_argument('--k', default=1, type=float, help='k in log transformation')
+    parser.add_argument('-t', '--top-k', default=5, type=int, help='number of worst samples to visualize')
+    parser.add_argument('-k', default=1, type=float, help='k in log transformation')
     parser.add_argument('-b', '--batch-size', default=32, type=int, help='batch size for evaluation')
     parser.add_argument('-j', '--workers', default=4, type=int, help='number of data loading workers')
 
