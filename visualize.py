@@ -41,8 +41,8 @@ def visualize(model, dataset, device, output_dir, num_samples, dataset_name):
             data, label, path = dataset[idx]
             
             # Add batch dimension and move to device
-            # data = data.unsqueeze(0).to(device)
-            data = np.expand_dims(data, axis=0)
+            data = torch.from_numpy(data).unsqueeze(0).to(device)
+            
             # Get model prediction
             prediction = model(data).squeeze(0).cpu() # Remove batch dim and move to cpu
 
@@ -142,7 +142,7 @@ def parse_args():
     import argparse
     parser = argparse.ArgumentParser(description='FWI Visualization')
     parser.add_argument('-d', '--device', default='cuda', help='device')
-    parser.add_argument('-ds', '--dataset', default='flatfault-b', type=str, help='dataset name')
+    parser.add_argument('-ds', '--dataset', default='all', type=str, help='dataset name')
     
     # Path related
     parser.add_argument('-v', '--val-anno', default='split_files/val_ds.csv', help='name of val anno')
