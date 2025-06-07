@@ -55,15 +55,15 @@ def visualize(model, dataset, device, output_dir, num_samples, dataset_name):
             label_unnorm = label * (label_max - label_min) / 2.0 + (label_max + label_min) / 2.0
             
             # Squeeze out the channel dimension for plotting and convert to numpy
-            prediction_unnorm_np = prediction_unnorm.squeeze(0).numpy()
-            label_unnorm_np = label_unnorm.squeeze(0).numpy()
+            prediction_unnorm_np = np.array(prediction_unnorm.squeeze(0))
+            label_unnorm_np = np.array(label_unnorm.squeeze(0))
 
             # Determine color range from ground truth
             vmin = label_unnorm_np.min()
             vmax = label_unnorm_np.max()
 
             # Plotting
-            fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+            fig, axes = plt.subplots(1, 2, figsize=(15,9))
             
             # Ground Truth
             im = axes[0].matshow(label_unnorm_np, cmap=rainbow_cmap, vmin=vmin, vmax=vmax)
@@ -83,10 +83,10 @@ def visualize(model, dataset, device, output_dir, num_samples, dataset_name):
                 ax.set_yticklabels(range(0, 700, 100))
 
             fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.75, label='Velocity(m/s)')
-            plt.tight_layout()
+            # plt.tight_layout()
             
             # Save the figure
-            base_filename = os.path.basename(path).replace('.npy', '')
+            base_filename = path.split('/')[-4]+'_'+os.path.basename(path).replace('.npy', '')
             save_path = os.path.join(output_dir, f'comparison_{base_filename}_sample_{idx}.png')
             plt.savefig(save_path)
             plt.close(fig)

@@ -1173,7 +1173,7 @@ class CoolNet(nn.Module):
     def __init__(
         self,
         backbone: str = 'convnext_small.fb_in22k_ft_in1k',
-        pretrained: bool = False,
+        pretrained: bool = True,
         encoder_dropout: float = 0.1,
         decoder_dropout: float = 0.2,
     ):
