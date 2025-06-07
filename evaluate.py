@@ -38,7 +38,7 @@ def evaluate_and_visualize_worst(model, dataset, device, output_dir, top_k, data
         batch_size=batch_size,
         shuffle=False, 
         num_workers=num_workers,
-        pin_memory=True
+        pin_memory=False
     )
 
     all_samples_with_loss = []
