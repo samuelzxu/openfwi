@@ -5,11 +5,15 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 from torchvision.transforms import Compose
+from matplotlib.colors import ListedColormap
 
 import utils
 import network
 import transforms as T
 from new_dataset import FineFWIDataset
+
+# Load colormap for velocity map visualization
+rainbow_cmap = ListedColormap(np.load('rainbow256.npy'))
 
 
 def visualize(model, dataset, device, output_dir, num_samples, dataset_name):
@@ -47,28 +51,30 @@ def visualize(model, dataset, device, output_dir, num_samples, dataset_name):
             prediction = model(data).squeeze(0).cpu() # Remove batch dim and move to cpu
 
             # Denormalize prediction and ground truth
-            # prediction_unnorm = prediction * (label_max - label_min) / 2.0 + (label_max + label_min) / 2.0
-            # label_unnorm = label * (label_max - label_min) / 2.0 + (label_max + label_min) / 2.0
+            prediction_unnorm = prediction * (label_max - label_min) / 2.0 + (label_max + label_min) / 2.0
+            label_unnorm = label * (label_max - label_min) / 2.0 + (label_max + label_min) / 2.0
             
-            # Squeeze out the channel dimension for plotting
-            prediction_unnorm = prediction.squeeze(0)
-            label_unnorm = label.squeeze(0)
+            # Squeeze out the channel dimension for plotting and convert to numpy
+            prediction_unnorm_np = prediction_unnorm.squeeze(0).numpy()
+            label_unnorm_np = label_unnorm.squeeze(0).numpy()
+
+            # Determine color range from ground truth
+            vmin = label_unnorm_np.min()
+            vmax = label_unnorm_np.max()
 
             # Plotting
             fig, axes = plt.subplots(1, 2, figsize=(12, 5))
             
             # Ground Truth
-            im1 = axes[0].imshow(label_unnorm, cmap='jet', vmin=1.5, vmax=4.5)
+            im = axes[0].matshow(label_unnorm_np, cmap=rainbow_cmap, vmin=vmin, vmax=vmax)
             axes[0].set_title(f'Ground Truth (Sample {idx})')
             axes[0].set_ylabel('Depth (m)', fontsize=12)
             axes[0].set_xlabel('Offset (m)', fontsize=12)
-            fig.colorbar(im1, ax=axes[0], label='km/s')
 
             # Prediction
-            im2 = axes[1].imshow(prediction_unnorm, cmap='jet', vmin=1.5, vmax=4.5)
+            axes[1].matshow(prediction_unnorm_np, cmap=rainbow_cmap, vmin=vmin, vmax=vmax)
             axes[1].set_title('Prediction')
             axes[1].set_xlabel('Offset (m)', fontsize=12)
-            fig.colorbar(im2, ax=axes[1], label='km/s')
 
             for ax in axes:
                 ax.set_xticks(range(0, 70, 10))
@@ -76,6 +82,7 @@ def visualize(model, dataset, device, output_dir, num_samples, dataset_name):
                 ax.set_yticks(range(0, 70, 10))
                 ax.set_yticklabels(range(0, 700, 100))
 
+            fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.75, label='Velocity(m/s)')
             plt.tight_layout()
             
             # Save the figure
