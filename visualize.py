@@ -47,12 +47,12 @@ def visualize(model, dataset, device, output_dir, num_samples, dataset_name):
             prediction = model(data).squeeze(0).cpu() # Remove batch dim and move to cpu
 
             # Denormalize prediction and ground truth
-            prediction_unnorm = prediction * (label_max - label_min) / 2.0 + (label_max + label_min) / 2.0
-            label_unnorm = label * (label_max - label_min) / 2.0 + (label_max + label_min) / 2.0
+            # prediction_unnorm = prediction * (label_max - label_min) / 2.0 + (label_max + label_min) / 2.0
+            # label_unnorm = label * (label_max - label_min) / 2.0 + (label_max + label_min) / 2.0
             
             # Squeeze out the channel dimension for plotting
-            prediction_unnorm = prediction_unnorm.squeeze(0)
-            label_unnorm = label_unnorm.squeeze(0)
+            prediction_unnorm = prediction.squeeze(0)
+            label_unnorm = label.squeeze(0)
 
             # Plotting
             fig, axes = plt.subplots(1, 2, figsize=(12, 5))
