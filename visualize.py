@@ -41,8 +41,8 @@ def visualize(model, dataset, device, output_dir, num_samples, dataset_name):
             data, label, path = dataset[idx]
             
             # Add batch dimension and move to device
-            data = data.unsqueeze(0).to(device)
-            
+            # data = data.unsqueeze(0).to(device)
+            data = np.expand_dims(data, axis=0)
             # Get model prediction
             prediction = model(data).squeeze(0).cpu() # Remove batch dim and move to cpu
 
