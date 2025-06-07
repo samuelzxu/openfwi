@@ -1310,13 +1310,14 @@ class CoolNet(nn.Module):
         x_seg= self.seg_head(x[-1])
         x_seg= x_seg[..., 1:-1, 1:-1]
         # x_seg= x_seg * 1500 + 3000
-    
-        if self.training:
-            return x_seg
-        else:
-            p1 = self.proc_flip(x_in)
-            x_seg = torch.mean(torch.stack([x_seg, p1]), dim=0)
-            return x_seg
+
+        return x_seg
+        # if self.training:
+        #     return x_seg
+        # else:
+        #     p1 = self.proc_flip(x_in)
+        #     x_seg = torch.mean(torch.stack([x_seg, p1]), dim=0)
+        #     return x_seg
 
 model_dict = {
     'InversionNet': InversionNet,
