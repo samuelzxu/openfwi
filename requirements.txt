@@ -10,3 +10,4 @@ wandb
 timm
 transformers
 huggingface_hub
+monai
