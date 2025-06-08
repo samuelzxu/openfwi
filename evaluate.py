@@ -51,7 +51,10 @@ def evaluate_and_visualize_worst(model, dataset, device, output_dir, top_k, data
             data = data.to(device)
             
             # Get model prediction and move to cpu for denormalization
-            prediction = model(data).cpu().unsqueeze(1)  # Remove batch dim and squeeze channel dim if needed
+            # UNet -> unsqueeze
+            # CoolNet -> No unsqueeze
+            # prediction = model(data).cpu().unsqueeze(1)  # Remove batch dim and squeeze channel dim if needed
+            prediction = model(data).cpu()
 
             # Denormalize prediction and ground truth
             prediction_unnorm = prediction * (label_max - label_min) / 2.0 + (label_max + label_min) / 2.0
@@ -79,7 +82,7 @@ def evaluate_and_visualize_worst(model, dataset, device, output_dir, top_k, data
     print("\nSaving visualizations for top K samples...")
     # Visualize the top K samples
     with torch.no_grad():
-        for loss, idx, path in top_k_samples:
+        for i, (loss, idx, path) in enumerate(top_k_samples):
             data, label, _ = dataset[idx]
             
             # Add batch dimension and move to device
@@ -123,8 +126,8 @@ def evaluate_and_visualize_worst(model, dataset, device, output_dir, top_k, data
             fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.75, label='Velocity(m/s)')
             
             # Save the figure
-            base_filename = path.split('/')[-4]+'_'+os.path.basename(path).replace('.npy', '')
-            save_path = os.path.join(output_dir, f'worst_{base_filename}_sample_{idx}.png')
+            base_filename = path.split('/')[-4]
+            save_path = os.path.join(output_dir, f'{i}_{base_filename}_{idx}.png')
             plt.savefig(save_path)
             plt.close(fig)
             print(f"Saved visualization for sample {idx} to {save_path}")

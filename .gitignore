@@ -3,3 +3,4 @@ __pycache__/
 Invnet_models/
 wandb/
 models/
+*_worst/
