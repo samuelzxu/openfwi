@@ -1167,15 +1167,14 @@ def _convnext_block_forward(self, x):
 
     x = self.drop_path(x) + self.shortcut(shortcut)
     return x
-a
 
 class CoolNet(nn.Module):
     def __init__(
         self,
-        backbone: str = 'convnext_small.fb_in22k_ft_in1k',
+        backbone: str = 'convnext_base.fb_in22k_ft_in1k',
         pretrained: bool = True,
-        encoder_dropout: float = 0.1,
-        decoder_dropout: float = 0.2,
+        encoder_dropout: float = 0.2,
+        decoder_dropout: float = 0.3,
         training: bool = True,
     ):
         super().__init__()
