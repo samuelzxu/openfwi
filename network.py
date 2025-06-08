@@ -1167,7 +1167,7 @@ def _convnext_block_forward(self, x):
 
     x = self.drop_path(x) + self.shortcut(shortcut)
     return x
-
+a
 
 class CoolNet(nn.Module):
     def __init__(

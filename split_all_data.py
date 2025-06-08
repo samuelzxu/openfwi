@@ -2,8 +2,11 @@ import os
 import numpy as np
 import time
 from tqdm import tqdm
+from dotenv import load_dotenv
 
-orig_data_dir = os.path.join('/mnt', 'datasets', 'openfwi')
+load_dotenv()
+
+orig_data_dir = os.path.join(os.getenv('ORIGINAL_DATA_DIR'))
 data_types = ['CurveVel_A',
  'CurveFault_A',
  'Style_A',
@@ -14,7 +17,7 @@ data_types = ['CurveVel_A',
  'CurveFault_B',
  'FlatVel_A',
  'FlatFault_A']
-save_dir = '/home/ziggy/dev/openfwi_unpacked'
+save_dir = os.getenv('SPLIT_DATA_DIR')
 
 def parse_common_fault_files(d):
     fault_files = os.listdir(d)

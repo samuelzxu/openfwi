@@ -4,3 +4,4 @@ Invnet_models/
 wandb/
 models/
 *_worst/
+.env

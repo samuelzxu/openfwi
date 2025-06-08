@@ -1,8 +1,11 @@
 import os
 from tqdm import tqdm
 import numpy as np
+from dotenv import load_dotenv
 
-data_dir = '/home/ziggy/dev/openfwi_unpacked'
+load_dotenv()
+
+data_dir = os.getenv('SPLIT_DATA_DIR')
 files = os.listdir(data_dir)
 
 all_data = list(os.walk(data_dir))
