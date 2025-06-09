@@ -38,13 +38,13 @@ import wandb
 import utils
 import network
 from scheduler import WarmupMultiStepLR
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau
 import transforms as T
 from weighted_sampler import WeightedStratifiedSampler
 
 step = 0
 
-def train_one_epoch(model, criterion, optimizer, lr_scheduler, 
+def train_one_epoch(model, criterion, optimizer,
                     dataloader, device, epoch, print_freq, writer, grad_accum_steps):
     global step
     model.train()
@@ -103,9 +103,6 @@ def train_one_epoch(model, criterion, optimizer, lr_scheduler,
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=3.0)
             optimizer.step()
             optimizer.zero_grad()
-            
-            # Update learning rate after optimizer step
-            lr_scheduler.step()
             
             step += 1
             accum_samples = 0  # Reset accumulated samples counter
@@ -318,8 +315,8 @@ def main(args):
     model = network.model_dict[args.model]().to(device)
 
     # Log model architecture with wandb
-    if not args.distributed or (args.rank == 0 and args.local_rank == 0):
-        wandb.watch(model, log="all", log_freq=args.print_freq)
+    # if not args.distributed or (args.rank == 0 and args.local_rank == 0):
+    #     wandb.watch(model, log="gradients", log_freq=args.print_freq)
 
     if args.distributed and args.sync_bn:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
@@ -346,12 +343,13 @@ def main(args):
     # Convert scheduler to be per iteration instead of per epoch
     # warmup_iters = args.lr_warmup_epochs * len(dataloader_train)
     # Adjust for gradient accumulation - each optimizer step occurs after grad_accum_steps batches
-    total_update_steps = (args.epochs * len(dataloader_train) + args.grad_accum_steps - 1) // args.grad_accum_steps
-    lr_milestones = [len(dataloader_train) * m for m in args.lr_milestones]
+    # total_update_steps = (args.epochs * len(dataloader_train) + args.grad_accum_steps - 1) // args.grad_accum_steps
+    # lr_milestones = [len(dataloader_train) * m for m in args.lr_milestones]
     # lr_scheduler = WarmupMultiStepLR(
     #     optimizer, milestones=lr_milestones, gamma=args.lr_gamma,
     #     warmup_iters=warmup_iters, warmup_factor=1e-5)
-    lr_scheduler = CosineAnnealingLR(optimizer, T_max=total_update_steps, eta_min=args.lr/30)
+    # lr_scheduler = CosineAnnealingLR(optimizer, T_max=total_update_steps, eta_min=args.lr/30)
+    lr_scheduler = ReduceLROnPlateau(optimizer, 'min', factor=args.lr_factor, patience=args.lr_patience)
 
     model_without_ddp = model
     if args.distributed:
@@ -365,7 +363,7 @@ def main(args):
         lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
         args.start_epoch = checkpoint['epoch'] + 1
         step = checkpoint['step']
-        lr_scheduler.milestones=lr_milestones
+        # lr_scheduler.milestones=lr_milestones
 
     print('Start training')
     start_time = time.time()
@@ -374,8 +372,6 @@ def main(args):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
-        
-        
 
         # Run validation first to get initial weights
         if epoch == args.start_epoch:
@@ -384,10 +380,11 @@ def main(args):
         # Update sampler weights based on validation loss
         train_sampler.update_weights(g1v_means)
 
-        train_one_epoch(model, criterion, optimizer, lr_scheduler, dataloader_train,
+        train_one_epoch(model, criterion, optimizer, dataloader_train,
                         device, epoch, args.print_freq, train_writer, args.grad_accum_steps)
 
         loss, g1v_means = evaluate(model, criterion, dataloader_valid, device, val_writer)
+        lr_scheduler.step(loss)
         
         checkpoint = {
             'model': model_without_ddp.state_dict(),
@@ -465,6 +462,8 @@ def parse_args():
     parser.add_argument('--weight-decay', default=1e-4 , type=float, help='weight decay (default: 1e-4)')
     parser.add_argument('--lr-gamma', default=0.1, type=float, help='decrease lr by a factor of lr-gamma')
     parser.add_argument('--lr-warmup-epochs', default=0, type=int, help='number of warmup epochs')   
+    parser.add_argument('--lr-patience', default=3, type=int, help='patience for ReduceLROnPlateau scheduler')
+    parser.add_argument('--lr-factor', default=0.5, type=float, help='factor for ReduceLROnPlateau scheduler')
     parser.add_argument('-eb', '--epoch_block', type=int, default=40, help='epochs in a saved block')
     parser.add_argument('-nb', '--num_block', type=int, default=3, help='number of saved block')
     parser.add_argument('-j', '--workers', default=16, type=int, help='number of data loading workers (default: 16)')
