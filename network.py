@@ -1293,7 +1293,7 @@ class CoolNet(nn.Module):
         x= self.decoder(x)
         x_seg= self.seg_head(x[-1])
         x_seg= x_seg[..., 1:-1, 1:-1]
-        x_seg= torch.flip(x_seg, dims=[-1])
+        x_seg= torch.flip(x_seg, dims=[-2])
         return x_seg
 
     def forward(self, batch):

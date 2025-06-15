@@ -46,7 +46,7 @@ def evaluate_and_visualize_worst(model, dataset, device, output_dir, top_k, data
 
     print("Evaluating model on the entire validation set...")
     with torch.no_grad():
-        for data, label, paths in dataloader:
+        for j, (data, label, paths) in enumerate(dataloader):
             # Move data to device
             data = data.to(device)
             
@@ -131,7 +131,6 @@ def evaluate_and_visualize_worst(model, dataset, device, output_dir, top_k, data
             plt.savefig(save_path)
             plt.close(fig)
             print(f"Saved visualization for sample {idx} to {save_path}")
-
 
 def main(args):
     print(args)
