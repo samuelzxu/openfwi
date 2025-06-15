@@ -11,12 +11,12 @@ load_dotenv()
 
 orig_data_dir = os.path.join(os.getenv('ORIGINAL_DATA_DIR'))
 data_types = [
-    # 'CurveVel_A',
-#  'CurveFault_A',
-#  'Style_A',
-#  'FlatVel_B',
-#  'FlatFault_B',
-#  'CurveVel_B',
+'CurveVel_A',
+ 'CurveFault_A',
+ 'Style_A',
+ 'FlatVel_B',
+ 'FlatFault_B',
+ 'CurveVel_B',
  'Style_B',
  'CurveFault_B',
  'FlatVel_A',
