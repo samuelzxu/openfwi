@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import Sampler
 from torch.utils.data.distributed import DistributedSampler
 import numpy as np
+from torch.nn.functional import softmax
 
 class WeightedStratifiedSampler(Sampler):
     """
@@ -61,9 +62,18 @@ class WeightedStratifiedSampler(Sampler):
         return (total_samples + self.num_replicas - 1) // self.num_replicas
         
     def update_weights(self, new_weights):
-        """Update sampling weights based on validation loss"""
-        total_weight = sum(new_weights.values())
-        self.weights = {dt: w/total_weight for dt, w in new_weights.items()}
+        """Update sampling weights using softmax to emphasize worse performing strata"""
+        # Convert to tensor for softmax computation
+        weight_values = torch.tensor([new_weights[dt] for dt in self.data_types], dtype=torch.float32)
+        
+        # Apply softmax to emphasize worse performing strata (higher losses get higher probability)
+        # The softmax automatically normalizes to sum to 1
+        softmax_weights = softmax(weight_values, dim=0)
+        
+        # Convert back to dictionary
+        self.weights = {dt: float(softmax_weights[i]) for i, dt in enumerate(self.data_types)}
+        
+        print(f"Updated weights using softmax: {self.weights}")
         
     def __iter__(self):
         # Set random seed for shuffling
