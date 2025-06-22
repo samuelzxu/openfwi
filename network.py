@@ -1318,6 +1318,86 @@ class CoolNet(nn.Module):
             p1 = self.proc_flip(x_in)
             x_seg = torch.mean(torch.stack([x_seg, p1]), dim=0)
             return x_seg
+class CANet(nn.Module):
+    def __init__(
+        self,
+        backbone: str = 'caformer_b36.sail_in22k_ft_in1k',
+        pretrained: bool = True,
+    ):
+        super().__init__()
+        
+        # Encoder
+        self.backbone= timm.create_model(
+            backbone,
+            in_chans= 5,
+            pretrained= pretrained,
+            features_only= True,
+            drop_path_rate=0.0,
+            )
+        ecs= [_["num_chs"] for _ in self.backbone.feature_info][::-1]
+
+        # Decoder
+        self.decoder= UnetDecoder2d(
+            encoder_channels= ecs,
+        )
+
+        self.seg_head= SegmentationHead2d(
+            in_channels= self.decoder.decoder_channels[-1],
+            out_channels= 1,
+            scale_factor= 1,
+        )
+        
+        self._update_stem(backbone)
+
+    def _update_stem(self, backbone):
+        m = self.backbone
+
+        m.stem.conv.stride=(4,1)
+        m.stem.conv.padding=(0,4)
+        m.stages_0.downsample = nn.AvgPool2d(kernel_size=(4,1), stride=(4,1))
+        m.stem= nn.Sequential(
+            nn.ReflectionPad2d((0,0,78,78)),
+            m.stem,
+        )
+
+        pass
+
+        
+    def proc_flip(self, x_in):
+        x_in= torch.flip(x_in, dims=[-3, -1])
+        x= self.backbone(x_in)
+        x= x[::-1]
+
+        # Decoder
+        x= self.decoder(x)
+        x_seg= self.seg_head(x[-1])
+        x_seg= x_seg[..., 1:-1, 1:-1]
+        x_seg= torch.flip(x_seg, dims=[-1])
+        x_seg= x_seg * 1500 + 3000
+        return x_seg
+
+    def forward(self, batch):
+        x= batch
+
+        # Encoder
+        x_in = x
+        x= self.backbone(x)
+        # print([_.shape for _ in x])
+        x= x[::-1]
+
+        # Decoder
+        x= self.decoder(x)
+        # print([_.shape for _ in x])
+        x_seg= self.seg_head(x[-1])
+        x_seg= x_seg[..., 1:-1, 1:-1]
+        # x_seg= x_seg * 1500 + 3000
+    
+        # if self.training:
+        return x_seg
+        # else:
+        #     p1 = self.proc_flip(x_in)
+        #     x_seg = torch.mean(torch.stack([x_seg, p1]), dim=0)
+        #     return x_seg
 
 model_dict = {
     'InversionNet': InversionNet,
@@ -1327,5 +1407,6 @@ model_dict = {
     'InversionNet3D': InversionNet3D,
     'UNet': UNet,
     'CoolNet': CoolNet,
+    'CANet': CANet,
 }
 

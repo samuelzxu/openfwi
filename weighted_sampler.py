@@ -63,18 +63,14 @@ class WeightedStratifiedSampler(Sampler):
         
     def update_weights(self, new_weights):
         """Update sampling weights using softmax to emphasize worse performing strata"""
-        # Convert to tensor for softmax computation
-        weight_values = torch.tensor([new_weights[dt] for dt in self.data_types], dtype=torch.float32)
-        
-        # Apply softmax to emphasize worse performing strata (higher losses get higher probability)
-        # The softmax automatically normalizes to sum to 1
-        softmax_weights = softmax(weight_values, dim=0)
+        weight_values = torch.tensor([new_weights[dt] for dt in self.data_types], dtype=torch.float32)**2
+        total_weight = weight_values.sum()
+        weight_values = weight_values / total_weight
         
         # Convert back to dictionary
-        self.weights = {dt: float(softmax_weights[i]) for i, dt in enumerate(self.data_types)}
-        
-        print(f"Updated weights using softmax: {self.weights}")
-        
+        self.weights = {dt: float(weight_values[i]) for i, dt in enumerate(self.data_types)}
+        print(f"Updated weights: {self.weights}")
+                
     def __iter__(self):
         # Set random seed for shuffling
         if self.shuffle:
