@@ -120,6 +120,25 @@ dummy_g1v_means = {
     'FlatVel_B': 10.0
 }
 
+class FocalL1Loss(nn.Module):
+    def __init__(self, gamma=1.0, alpha=1.0, reduction='mean'):
+        super().__init__()
+        self.gamma = gamma
+        self.alpha = alpha
+        self.reduction = reduction
+
+    def forward(self, input, target):
+        l1 = torch.abs(input - target)
+        modulating_factor = (1 - torch.exp(-self.alpha * l1)) ** self.gamma
+        loss = modulating_factor * l1
+
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        else:
+            return loss
+
 def evaluate(model, criterion, dataloader, device, writer):
     model.eval()
     metric_logger = utils.MetricLogger(delimiter='  ')
@@ -324,10 +343,13 @@ def main(args):
     # Define loss function
     l1loss = nn.L1Loss()
     l2loss = nn.MSELoss()
+    
+    focalL1Loss = FocalL1Loss(gamma=2, alpha=0.1)
     def criterion(pred, gt):
         loss_g1v = l1loss(pred, gt)
         loss_g2v = l2loss(pred, gt)
-        loss = args.lambda_g1v * loss_g1v + args.lambda_g2v * loss_g2v
+        # loss = args.lambda_g1v * loss_g1v + args.lambda_g2v * loss_g2v
+        loss = focalL1Loss(pred, gt)
         return loss, loss_g1v, loss_g2v
 
     # Scale lr according to effective batch size
