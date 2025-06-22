@@ -262,8 +262,8 @@ def main(args):
         
     # Normalize data and label to [-1, 1]
     transform_data = Compose([
-        T.LogTransform(k=args.k),
-        T.MinMaxNormalize(T.log_transform(ctx['data_min'], k=args.k), T.log_transform(ctx['data_max'], k=args.k))
+        # T.LogTransform(k=args.k),
+        T.MinMaxNormalize(ctx['data_min'], ctx['data_max'])
     ])
     transform_label = Compose([
         T.MinMaxNormalize(ctx['label_min'], ctx['label_max'])
